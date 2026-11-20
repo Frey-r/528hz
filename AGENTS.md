@@ -7,8 +7,14 @@ Harness de trabajo genérico para Claude Code. Funciona en dos modos:
 Este archivo es un **mapa**, no un manual. Cada sección apunta a donde vive el detalle.
 
 ## Estado
-- Diseño v0.6: brechas resueltas por el usuario y spike técnico completado (`docs/diseno/12-spike.md`). Todavía no hay código del harness.
-- Siguiente: Paso 3, el núcleo N1/N2 (plugin, `hz` CLI, motor SQLite, enforcement de RD).
+- **3.1 listo:** CLI `hz` en Go (motor SQLite + JSONL, decisiones, TDD, check, estado).
+- **3.2 listo:** plugin `hz` (guardias TDD/RD/autoprotección, DLP, puntero por hook de comando), skill `hz:harness`, `activar --nivel N2`, `exportar`, `puntero`. Validado en sesión real (`docs/diseno/12-spike.md`).
+- Siguiente: 3.3, orquestación (agentes de rol, tarjetas, arriendos, `hz capacidad`, `/hz enjambre`).
+
+## Comandos únicos
+- Test: `go test ./...` · Vet: `go vet ./...` · Build: `go build -trimpath -ldflags "-s -w" -o bin/hz.exe ./cmd/hz`
+- Plugin: `claude plugin test plugin` · `claude plugin validate plugin`
+- Contratos (van antes que tests y código, RG-2): `contratos/cli.md` · `contratos/plugin.md`
 
 ## Mapa
 | Tema | Dónde |
@@ -27,6 +33,10 @@ Este archivo es un **mapa**, no un manual. Cada sección apunta a donde vive el 
 | Orquestación (roles, relevo, enjambres) | `docs/diseno/11-orquestacion.md` |
 | Resultados del spike técnico (S1–S14) | `docs/diseno/12-spike.md` |
 | Esquemas de configuración | `schema/*.schema.json` |
+| CLI `hz`: entrada y subcomandos | `cmd/hz/main.go` · `cmd/hz/subcomandos.go` |
+| CLI `hz`: paquetes (motor, tdd, check, proyecto, reglas, exportar) | `internal/` · recursos embebidos en `recursos.go` |
+| Plugin: guardias puros y cableado de hooks | `plugin/hooks/nucleo.ts` · `plugin/hooks/register.ts` · `plugin/hooks/hooks.json` |
+| Skill del procedimiento (uso autónomo de `hz`) | `plugin/skills/harness/SKILL.md` |
 | Decisiones | `.harness/log/decisiones.jsonl` (fuente) → vista `docs/decisiones/INDICE.md` |
 | Insumo original (lluvia de ideas) | `general_description.md` |
 

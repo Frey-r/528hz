@@ -1,6 +1,6 @@
 # Índice de decisiones
 
-> Vista generada desde `.harness/log/decisiones.jsonl`. No editar a mano: la fuente es el log (RG-3).
+> Vista generada desde `.harness/log/decisiones.jsonl` (fuente, RG-3). No editar a mano. Ficha completa: `hz decision ver D-NNNN`.
 
 | ID | Cuándo | Qué | Decidió | Estado |
 |---|---|---|---|---|
@@ -36,5 +36,7 @@
 | D-0030 | 2026-11-20 17:45 | `hz capacidad` dimensiona el enjambre con RAM libre, núcleos y la carga medida por célula (≈45 MB por agente + pico de la célula) y frena lanzamientos si la RAM baja de la reserva. | agente_aprobado | vigente |
 | D-0031 | 2026-11-20 17:55 | Se omiten los pilares 6 (CI/CD autoreparable) y 7 (entrega progresiva) de general_description.md. | humano | vigente |
 | D-0032 | 2026-11-20 17:56 | El monitoreo de producción (pilar 8) es un módulo opcional por proyecto: la skill de monitoreo la declara cada proyecto (p. ej. grafana-loki), con acceso de solo lectura, para sensores de verticales y triage de incidentes. | humano | vigente |
-
-Ficha completa (cuándo, qué, por qué, alternativas): `hz decision ver D-NNNN` o la línea correspondiente del log.
+| D-0033 | 2026-11-20 18:15 | El CLI hz se escribe en Go (binario único), no en Bun + TypeScript | humano | vigente |
+| D-0034 | 2026-11-20 18:15 | Los hooks del plugin leen .harness/cache/hooks.json en vez de lanzar hz en cada tool call | agente | vigente |
+| D-0035 | 2026-11-20 18:43 | El registro de decisiones no depende solo del agente: el rol registrador revisa cada tarea cerrada y propone decisiones no registradas; la rúbrica del evaluador pregunta si hubo decisiones sin registrar | humano | vigente |
+| D-0036 | 2026-11-20 19:06 | El puntero de inicio de sesión lo entrega un hook de comando SessionStart (hz puntero) declarado en el hooks.json del plugin, no un hook de mod | agente | vigente |

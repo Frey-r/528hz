@@ -2,8 +2,14 @@
 -- Índice consultable. La fuente versionada es .harness/log/*.jsonl; `hz reindex` reconstruye esta base.
 -- Convención: IDs legibles con prefijo (D-, RD-, E-, L-, T-, R-, M-, G-, TR-, MS-).
 
-PRAGMA foreign_keys = ON;
-PRAGMA journal_mode = WAL;
+-- Sin claves foráneas forzadas: el índice se reconstruye reproduciendo logs y la integridad la valida `hz`.
+
+-- Estado de la indexación: tamaño de cada log al último reindex/escritura.
+-- Si un log cambió por fuera (git pull, merge), `hz` reindexa solo.
+CREATE TABLE IF NOT EXISTS meta (
+  clave TEXT PRIMARY KEY,
+  valor TEXT NOT NULL
+);
 
 -- ───────────────────────── Misiones ─────────────────────────
 CREATE TABLE IF NOT EXISTS misiones (
