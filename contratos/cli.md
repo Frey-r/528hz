@@ -90,3 +90,58 @@ Cada transición agrega un evento `tdd.<estado>` en `tdd.jsonl` y regenera **`.h
   "tareas_activas": [{ "id": "T-1", "estado": "rojo", "tests_bloqueados": ["tests/x_test.go"] }],
   "tests_bloqueados": ["tests/x_test.go"] }
 ```
+
+---
+
+# Incremento 3.3 · Orquestación (docs/diseno/11-orquestacion.md)
+
+### Tablero (DAG en SQLite, D-0028)
+- `hz tdd contrato T-n … [--celula c] [--bloqueada-por T-1,T-2]`: la tarea nace con su célula y sus dependencias.
+- `hz tablero [--listo] [--celula c]`: lista las tareas con estado, célula, dueño y bloqueos. Con `--listo` muestra solo el **frente listo**: tareas en CONTRATO cuyas dependencias ya están en VERDE o en un estado posterior.
+
+### Arriendos de archivos (D-0017)
+- `hz arriendo tomar <ruta>… --agente <id> --tarea T-n [--ttl 30m]`: toma rutas en exclusiva.
+  - Si alguna ruta tiene un arriendo vigente de **otro** agente: código 1, nombrando a su titular para que se le pida por SendMessage.
+  - Renovar las rutas propias está permitido.
+- `hz arriendo soltar --agente <id> [<ruta>…]`: suelta todas las rutas del agente, o solo las indicadas.
+- `hz arriendo lista`: muestra los arriendos vigentes; los vencidos no aparecen.
+- Se registran como eventos en `arriendos.jsonl`. Sobreviven al reindex, pero vencen por tiempo. Se exportan en `hooks.json → arriendos`.
+
+### Tarjetas de traspaso (D-0015)
+- `hz tarjeta registrar T-n --rol R --estado listo|fallo|bloqueado --texto "<yaml>"`: el texto tiene **≤30 líneas**; si es más largo, código 2. Se guarda en `traspasos.jsonl` y devuelve `TR-NNNN`.
+- `hz tarjeta ultima T-n [--rol R]`: muestra la última tarjeta. Es lo único que recibe el sucesor, nunca el transcript.
+
+### Equipo
+- `hz equipo`: lista el directorio rol ↔ `agentId` ↔ supervisor que mantiene el plugin en `.harness/cache/equipo.json`.
+
+### Paquete de rol (D-0014)
+- `hz contexto --rol R --tarea T-n`: devuelve ≤40 líneas con la **porción del harness** de ese rol:
+  - qué le toca y qué NO le toca;
+  - la ficha de la tarea (contrato, tests bloqueados, arriendos);
+  - sus comandos `hz`;
+  - su criterio de salida;
+  - la tarjeta del predecesor, si existe.
+- Roles: `contratista`, `tester`, `implementador`, `verificador`, `evaluador`, `registrador`, `integrador`, `curador`, `diagnosticador`, `medidor`, `lider`, `director`, `oraculo`. Un rol desconocido devuelve código 2.
+- El paquete del implementador **no** menciona la escalera de verificación, el holdout ni la rúbrica del evaluador.
+
+### Criterio de salida (D-0015)
+- `hz salida --rol R --tarea T-n`: verificación determinista; código 0 si el rol puede entregar y 1 con el motivo si no.
+
+| Rol | Criterio |
+|---|---|
+| contratista | El contrato existe y la tarea está registrada |
+| tester | Tarea en ROJO o posterior, con tests bloqueados |
+| implementador | Tarea en VERDE o REFACTOR **y** tests bloqueados intactos (hash) |
+| verificador | Tarea en VERDE o posterior, con evidencia ejecutada, y `check` en verde |
+| evaluador / otros | Existe una tarjeta del rol para la tarea |
+
+### Capacidad (D-0023, D-0030)
+- `hz capacidad [--agentes-por-celula 3] [--pico-mb 300]`: mide la RAM libre y total y los núcleos, y calcula las células simultáneas:
+
+  ```
+  células = min(límite_concurrencia/agentes_por_célula,
+                ⌊(RAM_libre − reserva) / (agentes_por_célula × 45 MB + pico)⌋,
+                núcleos)
+  ```
+
+  donde `reserva = max(1 GB, 10 % de la RAM total)` y `límite_concurrencia = CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` (20 si no está definido). Si el resultado es 0, recomienda liberar RAM. `--json` da la salida en JSON.

@@ -15,6 +15,7 @@ import (
 	"hz528/internal/check"
 	"hz528/internal/exportar"
 	"hz528/internal/motor"
+	"hz528/internal/orquesta"
 	"hz528/internal/proyecto"
 	"hz528/internal/reglas"
 	"hz528/internal/tdd"
@@ -73,7 +74,8 @@ func (g globales) directorio() string {
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 
-var conProyecto = map[string]bool{"reindex": true, "decision": true, "check": true, "estado": true, "tdd": true, "exportar": true}
+var conProyecto = map[string]bool{"reindex": true, "decision": true, "check": true, "estado": true, "tdd": true, "exportar": true,
+	"tablero": true, "arriendo": true, "tarjeta": true, "contexto": true, "salida": true, "equipo": true}
 
 func run(args []string, stdout, stderr io.Writer) int {
 	g, args, err := separarGlobales(args)
@@ -99,6 +101,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdRegla(resto, stdout, stderr)
 	case "puntero":
 		return cmdPuntero(g, stdout, stderr)
+	case "capacidad":
+		return cmdCapacidad(g, resto, stdout, stderr)
 	}
 	if !conProyecto[cmd] {
 		fmt.Fprintf(stderr, "comando desconocido %q\n", cmd)
@@ -133,6 +137,18 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return ctx.estado()
 	case "exportar":
 		return ctx.exportar()
+	case "tablero":
+		return ctx.tablero(resto)
+	case "arriendo":
+		return ctx.arriendo(resto)
+	case "tarjeta":
+		return ctx.tarjeta(resto)
+	case "contexto":
+		return ctx.contexto(resto)
+	case "salida":
+		return ctx.salida(resto)
+	case "equipo":
+		return ctx.equipo()
 	default: // tdd
 		return ctx.tdd(resto)
 	}
@@ -154,9 +170,9 @@ func (c contexto) codigo(err error) int {
 	}
 	fmt.Fprintln(c.err, err)
 	switch {
-	case errors.Is(err, motor.ErrCampos):
+	case errors.Is(err, motor.ErrCampos), errors.Is(err, orquesta.ErrRolDesconocido):
 		return usoInvalido
-	case errors.Is(err, tdd.ErrVerificacion), errors.Is(err, motor.ErrNoExiste):
+	case errors.Is(err, tdd.ErrVerificacion), errors.Is(err, motor.ErrNoExiste), errors.Is(err, motor.ErrConflicto):
 		return falloVerif
 	default:
 		return errorInterno
@@ -298,6 +314,13 @@ func uso(w io.Writer) {
   hz check [--json]                      estructura orientada a agentes
   hz decision nueva|buscar|ver …         registro cuándo/qué/por qué (RG-3)
   hz tdd contrato|rojo|verde|refactor|estado …   ciclo TDD (RG-2)
+  hz tablero [--listo] [--celula c]      tareas, dependencias y frente listo
+  hz arriendo tomar|soltar|lista …       exclusividad de archivos entre agentes
+  hz tarjeta registrar|ultima …          tarjetas de traspaso entre roles (≤30 líneas)
+  hz contexto --rol R --tarea T-n        paquete de rol (la porción del harness de ese rol)
+  hz salida --rol R --tarea T-n          criterio de salida determinista del rol
+  hz capacidad [--json]                  cuántas células caben en esta máquina
+  hz equipo                              directorio rol ↔ agentId (lo mantiene el plugin)
   hz regla ver RG-n                      texto de una regla general
   hz reindex                             reconstruye el índice desde los logs
   hz exportar                            regenera .harness/cache/hooks.json para el plugin

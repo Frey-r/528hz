@@ -9,7 +9,8 @@ Este archivo es un **mapa**, no un manual. Cada sección apunta a donde vive el 
 ## Estado
 - **3.1 listo:** CLI `hz` en Go (motor SQLite + JSONL, decisiones, TDD, check, estado).
 - **3.2 listo:** plugin `hz` (guardias TDD/RD/autoprotección, DLP, puntero por hook de comando), skill `hz:harness`, `activar --nivel N2`, `exportar`, `puntero`. Validado en sesión real (`docs/diseno/12-spike.md`).
-- Siguiente: 3.3, orquestación (agentes de rol, tarjetas, arriendos, `hz capacidad`, `/hz enjambre`).
+- **3.3 listo:** orquestación: 12 agentes de rol `hz:<rol>`, skill `hz:enjambre`, tablero con DAG, arriendos por tarea, tarjetas, paquetes de rol, `salida`, `capacidad`, `equipo`, supervisor y vigía. Validado en sesión real.
+- Siguiente: 3.4, evals (ciclo error → lección → eval con el curador, meta-evals, red-team de RD).
 
 ## Comandos únicos
 - Test: `go test ./...` · Vet: `go vet ./...` · Build: `go build -trimpath -ldflags "-s -w" -o bin/hz.exe ./cmd/hz`
@@ -34,9 +35,10 @@ Este archivo es un **mapa**, no un manual. Cada sección apunta a donde vive el 
 | Resultados del spike técnico (S1–S14) | `docs/diseno/12-spike.md` |
 | Esquemas de configuración | `schema/*.schema.json` |
 | CLI `hz`: entrada y subcomandos | `cmd/hz/main.go` · `cmd/hz/subcomandos.go` |
-| CLI `hz`: paquetes (motor, tdd, check, proyecto, reglas, exportar) | `internal/` · recursos embebidos en `recursos.go` |
+| CLI `hz`: paquetes (motor, tdd, check, proyecto, reglas, exportar, orquesta, capacidad) | `internal/` · recursos embebidos en `recursos.go` |
 | Plugin: guardias puros y cableado de hooks | `plugin/hooks/nucleo.ts` · `plugin/hooks/register.ts` · `plugin/hooks/hooks.json` |
 | Skill del procedimiento (uso autónomo de `hz`) | `plugin/skills/harness/SKILL.md` |
+| Skill del director (enjambres) y agentes de rol | `plugin/skills/enjambre/SKILL.md` · `plugin/agents/*.md` |
 | Decisiones | `.harness/log/decisiones.jsonl` (fuente) → vista `docs/decisiones/INDICE.md` |
 | Insumo original (lluvia de ideas) | `general_description.md` |
 

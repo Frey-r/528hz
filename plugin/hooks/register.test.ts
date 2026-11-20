@@ -63,3 +63,47 @@ test('sin harness en el proyecto no interviene', async ($, on) => {
   const r: any = await $.tool.call({ tool: 'Edit', file_path: `${RAIZ}/tests/sumar_test.go`, old_string: 'a', new_string: 'b' })
   expect(r.deny).toBeUndefined()
 })
+
+// ── Orquestación ──
+
+const HOOKS_ARRIENDO = JSON.stringify({
+  ...JSON.parse(HOOKS),
+  arriendos: [{ ruta: 'app/cobro.go', agente: 'ag1', tarea: 'T-7', expira: new Date(Date.now() + 3_600_000).toISOString() }],
+})
+
+test('deniega a un subagente escribir un archivo arrendado por otro', async ($, on) => {
+  motor(on, { hooks: HOOKS_ARRIENDO })
+  on('agent.list', () => ({ value: [] }))
+  on('fs.write', () => ({ value: undefined }))
+  await $.session.start({ cwd: RAIZ, surface: 'terminal', isInteractive: true })
+  const r: any = await $.tool.call({ tool: 'Edit', file_path: `${RAIZ}/app/cobro.go`, old_string: 'a', new_string: 'b', agentId: 'ag2' })
+  expect(r.deny).toContain('ag1')
+})
+
+test('al lanzar un subagente le indica su supervisor', async ($, on) => {
+  motor(on)
+  let prompt = ''
+  on('agent.spawn', (_: unknown, e: { prompt: string }) => {
+    prompt = e.prompt
+    return { model: 'sonnet' }
+  })
+  await $.session.start({ cwd: RAIZ, surface: 'terminal', isInteractive: true })
+  await $.agent.spawn({ tool_use_id: 't1', prompt: 'implementa T-7', description: 'implementador T-7', subagentType: 'general-purpose', parentAgentId: 'lider9' } as any)
+  expect(prompt).toContain('lider9')
+  expect(prompt).toContain('implementa T-7')
+})
+
+test('registra al subagente en el equipo en su primer tool call', async ($, on) => {
+  motor(on)
+  const escrito: string[] = []
+  // AgentInfo parcial: el hook solo lee id, type, description y parentId.
+  on('agent.list', () => ({ value: [{ id: 'ag2', type: 'general-purpose', description: 'implementador T-7', parentId: 'lider9' }] as any }))
+  on('fs.write', (_: unknown, e: { path: string; text: string }) => {
+    if (e.path.replaceAll('\\', '/').endsWith('.harness/cache/equipo.json')) escrito.push(e.text)
+    return { value: undefined }
+  })
+  await $.session.start({ cwd: RAIZ, surface: 'terminal', isInteractive: true })
+  await $.tool.call({ tool: 'Read', file_path: `${RAIZ}/README.md`, agentId: 'ag2' })
+  expect(escrito.at(-1)).toContain('ag2')
+  expect(escrito.at(-1)).toContain('lider9')
+})

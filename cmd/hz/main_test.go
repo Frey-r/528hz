@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -60,6 +62,47 @@ func TestPunteroSinHarnessNoFallaNiImprime(t *testing.T) {
 	code, out, _ := hz(t, "--raiz", t.TempDir(), "puntero")
 	if code != 0 || strings.TrimSpace(out) != "" {
 		t.Fatalf("sin harness, puntero nunca debe romper un inicio de sesión: código %d, salida %q", code, out)
+	}
+}
+
+func TestOrquestacionDesdeElCLI(t *testing.T) {
+	raiz := t.TempDir()
+	if code, _, e := hz(t, "--raiz", raiz, "activar", "--nivel", "N2"); code != 0 {
+		t.Fatalf("activar: %s", e)
+	}
+	if err := os.MkdirAll(filepath.Join(raiz, "contratos"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(raiz, "contratos", "x.md"), []byte("contrato\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pasos := []struct {
+		args   []string
+		codigo int
+		debe   string
+	}{
+		{[]string{"tdd", "contrato", "T-1", "--titulo", "base", "--contrato", "contratos/x.md", "--celula", "pagos"}, 0, "T-1"},
+		{[]string{"tdd", "contrato", "T-2", "--titulo", "depende", "--contrato", "contratos/x.md", "--bloqueada-por", "T-1"}, 0, "T-2"},
+		{[]string{"tablero", "--listo"}, 0, "T-1"},
+		{[]string{"arriendo", "tomar", "app/a.go", "--agente", "ag1", "--tarea", "T-1"}, 0, "app/a.go"},
+		{[]string{"arriendo", "tomar", "app/a.go", "--agente", "ag2", "--tarea", "T-2"}, 1, ""},
+		{[]string{"arriendo", "lista"}, 0, "ag1"},
+		{[]string{"tarjeta", "registrar", "T-1", "--rol", "contratista", "--estado", "listo", "--texto", "hecho: contrato listo"}, 0, "TR-0001"},
+		{[]string{"tarjeta", "ultima", "T-1"}, 0, "hecho: contrato listo"},
+		{[]string{"contexto", "--rol", "tester", "--tarea", "T-1"}, 0, "hz tdd rojo T-1"},
+		{[]string{"contexto", "--rol", "astronauta", "--tarea", "T-1"}, 2, ""},
+		{[]string{"salida", "--rol", "contratista", "--tarea", "T-1"}, 0, ""},
+		{[]string{"salida", "--rol", "tester", "--tarea", "T-1"}, 1, ""},
+		{[]string{"capacidad", "--json"}, 0, "celulas"},
+	}
+	for _, p := range pasos {
+		code, out, e := hz(t, append([]string{"--raiz", raiz}, p.args...)...)
+		if code != p.codigo || !strings.Contains(out, p.debe) {
+			t.Fatalf("hz %v: código %d (se esperaba %d), salida %q, error %q", p.args, code, p.codigo, out, e)
+		}
+	}
+	if code, out, _ := hz(t, "--raiz", raiz, "tablero", "--listo"); code != 0 || strings.Contains(out, "T-2") {
+		t.Fatalf("T-2 está bloqueada por T-1 y no puede estar en el frente listo: %q", out)
 	}
 }
 

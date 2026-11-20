@@ -47,6 +47,7 @@ func anexar(ruta, nombre string, datos any) (int64, error) {
 
 // aplicador reutiliza sentencias preparadas durante el reindex (RG-1.4).
 type aplicador struct {
+	tx                   *sql.Tx
 	decision, fts, tarea *sql.Stmt
 }
 
@@ -56,16 +57,17 @@ const (
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	sqlFTS   = `INSERT INTO decisiones_fts (id, que, por_que, etiquetas, alternativas) VALUES (?, ?, ?, ?, ?)`
 	sqlTarea = `INSERT INTO tareas_tdd (id, mision_id, titulo, estado, contrato_ruta, contrato_ok_en,
-		tests_bloqueados, rojo_en, verde_en, evidencia)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		tests_bloqueados, rojo_en, verde_en, evidencia, celula, owner_agente_id, bloqueada_por)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET mision_id = excluded.mision_id, titulo = excluded.titulo,
 		estado = excluded.estado, contrato_ruta = excluded.contrato_ruta, contrato_ok_en = excluded.contrato_ok_en,
 		tests_bloqueados = excluded.tests_bloqueados, rojo_en = excluded.rojo_en, verde_en = excluded.verde_en,
-		evidencia = excluded.evidencia`
+		evidencia = excluded.evidencia, celula = excluded.celula, owner_agente_id = excluded.owner_agente_id,
+		bloqueada_por = excluded.bloqueada_por`
 )
 
 func prepararAplicador(tx *sql.Tx) (*aplicador, error) {
-	ap := &aplicador{}
+	ap := &aplicador{tx: tx}
 	var err error
 	if ap.decision, err = tx.Prepare(sqlDecision); err != nil {
 		return nil, err
@@ -104,6 +106,21 @@ func (ap *aplicador) aplicar(ev evento) (bool, error) {
 			return true, fmt.Errorf("%s: %w", ev.Evento, err)
 		}
 		return true, guardarTarea(ap.tarea, t)
+	case "arriendo.tomar", "arriendo.soltar":
+		var a eventoArriendo
+		if err := json.Unmarshal(ev.Datos, &a); err != nil {
+			return true, fmt.Errorf("%s: %w", ev.Evento, err)
+		}
+		if ev.Evento == "arriendo.tomar" {
+			return true, aplicarTomar(ap.tx, a)
+		}
+		return true, aplicarSoltar(ap.tx, a)
+	case "tarjeta.nueva":
+		var t Tarjeta
+		if err := json.Unmarshal(ev.Datos, &t); err != nil {
+			return true, fmt.Errorf("tarjeta.nueva: %w", err)
+		}
+		return true, aplicarTarjeta(ap.tx, t)
 	default:
 		return false, nil
 	}

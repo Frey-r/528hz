@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -256,12 +257,14 @@ func (c contexto) tdd(args []string) int {
 		contrato := fs.String("contrato", "", "ruta del contrato")
 		aprobado := fs.Bool("aprobado", false, "el humano aprobó el contrato")
 		mision := fs.String("mision", "", "misión")
+		celula := fs.String("celula", "", "célula (funcionalidad o cluster) a la que pertenece")
+		bloqueada := fs.String("bloqueada-por", "", "tareas de las que depende, separadas por coma")
 		pos, err := parsearIntercalado(fs, resto)
 		if err != nil || len(pos) != 1 || *titulo == "" || *contrato == "" {
-			fmt.Fprintln(c.err, "uso: hz tdd contrato T-n --titulo \"…\" --contrato <ruta> [--aprobado] [--mision m]")
+			fmt.Fprintln(c.err, "uso: hz tdd contrato T-n --titulo \"…\" --contrato <ruta> [--aprobado] [--mision m] [--celula c] [--bloqueada-por T-1,T-2]")
 			return usoInvalido
 		}
-		return c.transicion(q.Contrato(pos[0], *titulo, *contrato, *aprobado, *mision), pos[0], "CONTRATO")
+		return c.transicion(q.ContratoConDAG(pos[0], *titulo, *contrato, *aprobado, *mision, *celula, dividir(*bloqueada)), pos[0], "CONTRATO")
 	case "rojo":
 		tests := fs.String("tests", "", "tests a bloquear, separados por coma")
 		cmd := fs.String("cmd", "", "comando de test")
@@ -347,4 +350,11 @@ func siNo(b bool) string {
 		return "sí"
 	}
 	return "no"
+}
+
+// flagSetGlobal crea un FlagSet para comandos que no dependen de un proyecto.
+func flagSetGlobal(nombre string, errw io.Writer) *flag.FlagSet {
+	fs := flag.NewFlagSet(nombre, flag.ContinueOnError)
+	fs.SetOutput(errw)
+	return fs
 }

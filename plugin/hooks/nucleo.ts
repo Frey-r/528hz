@@ -12,6 +12,7 @@ export type Hooks = {
   protegidos: string[]
   reglas_duras: { id: string; orden: string; remediacion: string; herramientas: string[]; rutas: string[]; bash: string[] }[]
   secretos: string[]
+  arriendos?: { ruta: string; agente: string; tarea: string; expira: string }[]
 }
 
 type Regla = Hooks['reglas_duras'][number]
@@ -105,22 +106,51 @@ function tareaDe(h: Hooks, relN: string): string | undefined {
   return h.tareas_activas.find(t => t.tests_bloqueados.some(x => x.toLowerCase() === relN))?.id
 }
 
+/** Quita las comillas y neutraliza los operadores que estaban dentro: entre comillas son datos, no redirecciones. */
+function sinOperadoresEntreComillas(cmd: string): string {
+  let salida = ''
+  let comilla: string | undefined
+  for (const ch of cmd) {
+    if (comilla) {
+      if (ch === comilla) comilla = undefined
+      else salida += '<>|;&'.includes(ch) ? ' ' : ch
+    } else if (ch === '"' || ch === "'") {
+      comilla = ch
+    } else {
+      salida += ch
+    }
+  }
+  return salida
+}
+
+/** `hz` es el camino sancionado: nunca escribe tests bloqueados ni protegidos por su cuenta. */
+const esHz = (segmento: string) => /^(\S*[\\/])?hz(\.exe)?(\s|$)/i.test(segmento.trim())
+
 /** Comando de shell que escribe sobre un test bloqueado o un protegido (capa complementaria al deny nativo). */
 export function escribeEnBash(h: Hooks, cmd: string): string | undefined {
-  if (!ESCRITURA.test(cmd)) return undefined
-  const c = separador(cmd).toLowerCase()
-  for (const t of h.tests_bloqueados) {
-    if (c.includes(t.toLowerCase())) return mensajeTest(t, tareaDe(h, t.toLowerCase()))
-  }
-  for (const p of h.protegidos) {
-    const literal = (separador(p).split('*')[0] ?? '').toLowerCase()
-    if (literal && c.includes(literal)) return mensajeProtegido(literal)
+  for (const segmento of sinOperadoresEntreComillas(cmd).split(/&&|\|\||;|\|/)) {
+    if (esHz(segmento) || !ESCRITURA.test(segmento)) continue
+    const c = separador(segmento).toLowerCase()
+    for (const t of h.tests_bloqueados) {
+      if (c.includes(t.toLowerCase())) return mensajeTest(t, tareaDe(h, t.toLowerCase()))
+    }
+    for (const p of h.protegidos) {
+      const literal = (separador(p).split('*')[0] ?? '').toLowerCase()
+      if (literal && c.includes(literal)) return mensajeProtegido(literal)
+    }
   }
   return undefined
 }
 
 /** Decide si una llamada se deniega antes de ejecutarse; devuelve el motivo con su remediación. */
-export function evaluarEntrada(h: Hooks, tool: string, input: Record<string, unknown>, raiz: string): string | undefined {
+export function evaluarEntrada(
+  h: Hooks,
+  tool: string,
+  input: Record<string, unknown>,
+  raiz: string,
+  agente?: string,
+  tarea?: string,
+): string | undefined {
   if (!activo(h)) return undefined
   for (const r of h.reglas_duras) if (r.herramientas.includes(tool)) return mensajeRegla(r)
   if (SHELLS.has(tool)) {
@@ -136,6 +166,15 @@ export function evaluarEntrada(h: Hooks, tool: string, input: Record<string, unk
   if (ESCRIBEN.has(tool)) {
     if (h.tests_bloqueados.some(t => t.toLowerCase() === relN)) return mensajeTest(rel, tareaDe(h, relN))
     if (h.protegidos.some(p => coincide(p.toLowerCase(), relN))) return mensajeProtegido(rel)
+    const ahora = Date.now()
+    const ajeno = (h.arriendos ?? []).find(
+      a =>
+        a.ruta.toLowerCase() === relN &&
+        Date.parse(a.expira) > ahora &&
+        a.agente !== agente &&
+        a.tarea.toLowerCase() !== (tarea ?? '').toLowerCase(),
+    )
+    if (ajeno) return mensajeArriendo(rel, ajeno)
   }
   for (const r of h.reglas_duras) if (r.rutas.some(p => coincide(p.toLowerCase(), relN))) return mensajeRegla(r)
   return undefined
@@ -185,4 +224,49 @@ export const puntero = (h: Hooks) => h.resumen.slice(0, 15).join('\n')
 export function estadoCorto(h: Hooks): string {
   const tareas = h.tareas_activas.map(t => `${t.id} ${t.estado.toUpperCase()}`)
   return `hz · ${h.nivel} · ${tareas.length ? tareas.slice(0, 3).join(', ') : 'sin tareas TDD'}`
+}
+
+// ── Orquestación (contratos/plugin.md §4) ──
+
+type Arriendo = NonNullable<Hooks['arriendos']>[number]
+
+function mensajeArriendo(rel: string, a: Arriendo): string {
+  const vence = new Date(a.expira).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
+  return (
+    `Arriendo del harness 528hz: ${rel} lo tiene el agente ${a.agente} (tarea ${a.tarea}) hasta las ${vence}. ` +
+    `No lo edites: pídeselo por SendMessage (to: "${a.agente}") o coordina con tu líder.`
+  )
+}
+
+/** Línea que se antepone al prompt de cada subagente: a quién escalar (D-0027). */
+export function lineaSupervisor(padre?: string): string {
+  return padre
+    ? `Tu supervisor es el agente ${padre}: escálale dudas y bloqueos por SendMessage (to: "${padre}").`
+    : 'Tu supervisor es la sesión principal (director): escálale dudas y bloqueos en tu respuesta final.'
+}
+
+/** Vigía de errores seguidos por agente: alerta una sola vez al llegar al umbral; un éxito lo rearma. */
+export class Vigia {
+  private readonly seguidos = new Map<string, number>()
+  constructor(private readonly umbral: number) {}
+
+  registrar(agente: string, esError: boolean): boolean {
+    if (!esError) {
+      this.seguidos.set(agente, 0)
+      return false
+    }
+    const n = (this.seguidos.get(agente) ?? 0) + 1
+    this.seguidos.set(agente, n)
+    return n === this.umbral
+  }
+
+  reiniciar(): void {
+    this.seguidos.clear()
+  }
+}
+
+/** Tarea declarada en la descripción del agente (convención «<rol> T-n …»). */
+export function tareaDeDescripcion(descripcion: string): string | undefined {
+  const numero = /\bT-(\d+)\b/i.exec(descripcion)?.[1]
+  return numero ? `T-${numero}` : undefined
 }

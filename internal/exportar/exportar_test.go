@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"hz528/internal/motor"
 )
@@ -78,6 +79,28 @@ reglas:
 	}
 	if len(h.Resumen) == 0 || len(h.Resumen) > 15 || !strings.Contains(strings.Join(h.Resumen, "\n"), "T-1") {
 		t.Fatalf("el resumen debe tener 1–15 líneas y mencionar las tareas activas: %v", h.Resumen)
+	}
+}
+
+func TestExportarIncluyeSoloArriendosVigentes(t *testing.T) {
+	raiz := t.TempDir()
+	m, err := motor.Abrir(raiz)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Cerrar()
+	if err := m.TomarArriendo([]string{"app/a.go"}, "ag1", "T-1", time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.TomarArriendo([]string{"app/viejo.go"}, "ag2", "T-2", time.Now().Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := Escribir(m, raiz); err != nil {
+		t.Fatal(err)
+	}
+	h := leerHooks(t, raiz)
+	if len(h.Arriendos) != 1 || h.Arriendos[0].Ruta != "app/a.go" || h.Arriendos[0].Agente != "ag1" || h.Arriendos[0].Tarea != "T-1" {
+		t.Fatalf("solo el arriendo vigente debe exportarse: %+v", h.Arriendos)
 	}
 }
 

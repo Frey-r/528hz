@@ -47,3 +47,13 @@ Las rutas son relativas a la raíz y usan `/`. Las globs admiten `*` (un segment
 - La comparación es insensible a mayúsculas en Windows y normaliza `\` → `/`.
 
 **Caché:** el plugin relee `hooks.json` solo si cambió su `mtimeMs` (un `stat` por tool call, en proceso). Sin `hooks.json`, o con `enabled: false`, todo es no-op.
+
+---
+
+## 4. Orquestación (incremento 3.3)
+- **`hooks.json` v2 suma** `arriendos: [{ "ruta", "agente", "tarea", "expira" }]` (solo los vigentes).
+- **`tool.call` (arriendos, N2+):** si un agente intenta `Edit/Write/MultiEdit/NotebookEdit` sobre una ruta arrendada, se deniega con «pídeselo a `<agente>` (tarea T-n) por SendMessage», **salvo** que sea su titular o que su descripción declare la misma tarea («<rol> T-n», D-0037). La sesión principal (sin `agentId`) también respeta los arriendos. Al vencer, el arriendo deja de aplicar.
+- **Bash:** los segmentos que invocan `hz` no se evalúan como escritura, y los operadores entre comillas son datos (D-0038).
+- **Equipo:** en el primer `tool.call` de cada `agentId`, el mod lo registra en `.harness/cache/equipo.json` (`{ id, tipo, descripcion, padre, visto }`) con `$.agent.list()`. Con eso `hz equipo` muestra quién es quién.
+- **Supervisor (`agent.spawn`):** agrega al prompt del subagente la línea «Tu supervisor es `<parentAgentId>` (o la sesión principal): escálale por SendMessage con ese id». Así cada agente sabe a quién escalar sin preguntar (D-0027).
+- **Watchdog:** si un agente acumula **5 tool calls seguidas con error**, el mod envía un único `ALERTA` a su supervisor (`$.session.send({ to: { agentId } })`). Si el supervisor es la sesión principal, muestra un toast.

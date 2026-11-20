@@ -40,3 +40,5 @@
 | D-0034 | 2026-11-20 18:15 | Los hooks del plugin leen .harness/cache/hooks.json en vez de lanzar hz en cada tool call | agente | vigente |
 | D-0035 | 2026-11-20 18:43 | El registro de decisiones no depende solo del agente: el rol registrador revisa cada tarea cerrada y propone decisiones no registradas; la rúbrica del evaluador pregunta si hubo decisiones sin registrar | humano | vigente |
 | D-0036 | 2026-11-20 19:06 | El puntero de inicio de sesión lo entrega un hook de comando SessionStart (hz puntero) declarado en el hooks.json del plugin, no un hook de mod | agente | vigente |
+| D-0037 | 2026-11-20 20:15 | Los arriendos se toman por tarea: el líder arrienda los archivos a nombre de la tarea y puede escribirlos todo agente cuya descripción declare esa tarea («<rol> T-n») | agente | vigente |
+| D-0038 | 2026-11-20 20:15 | En el guardia de bash, los segmentos que invocan hz no se evalúan y los operadores entre comillas son datos | agente | vigente |

@@ -34,6 +34,9 @@ type Tarea struct {
 	VerdeEn         string          `json:"verde_en"`
 	TestsBloqueados []TestBloqueado `json:"tests_bloqueados"`
 	Evidencia       []Evidencia     `json:"evidencia"`
+	Celula          string          `json:"celula"`
+	OwnerAgenteID   string          `json:"owner_agente_id"`
+	BloqueadaPor    []string        `json:"bloqueada_por"`
 }
 
 var eventosTDD = map[string]bool{"tdd.contrato": true, "tdd.rojo": true, "tdd.verde": true, "tdd.refactor": true}
@@ -45,8 +48,12 @@ func guardarTarea(st *sql.Stmt, t Tarea) error {
 	if t.Evidencia == nil {
 		t.Evidencia = []Evidencia{}
 	}
+	if t.BloqueadaPor == nil {
+		t.BloqueadaPor = []string{}
+	}
 	_, err := st.Exec(t.ID, nulo(t.MisionID), t.Titulo, t.Estado, nulo(t.ContratoRuta), nulo(t.ContratoOKEn),
-		jsonTexto(t.TestsBloqueados), nulo(t.RojoEn), nulo(t.VerdeEn), jsonTexto(t.Evidencia))
+		jsonTexto(t.TestsBloqueados), nulo(t.RojoEn), nulo(t.VerdeEn), jsonTexto(t.Evidencia),
+		nulo(t.Celula), nulo(t.OwnerAgenteID), jsonTexto(t.BloqueadaPor))
 	if err != nil {
 		return fmt.Errorf("tarea %s: %w", t.ID, err)
 	}
@@ -73,7 +80,8 @@ func (m *Motor) RegistrarTarea(evento string, t Tarea) error {
 }
 
 const columnasTarea = `id, COALESCE(mision_id,''), titulo, estado, COALESCE(contrato_ruta,''), COALESCE(contrato_ok_en,''),
-	COALESCE(rojo_en,''), COALESCE(verde_en,''), tests_bloqueados, evidencia`
+	COALESCE(rojo_en,''), COALESCE(verde_en,''), tests_bloqueados, evidencia, COALESCE(celula,''),
+	COALESCE(owner_agente_id,''), bloqueada_por`
 
 // Tarea devuelve una tarea por ID.
 func (m *Motor) Tarea(id string) (Tarea, error) {
@@ -101,12 +109,13 @@ func (m *Motor) consultarTareas(sufijo string, args ...any) ([]Tarea, error) {
 	var ts []Tarea
 	for filas.Next() {
 		var t Tarea
-		var tb, ev string
+		var tb, ev, bp string
 		if err := filas.Scan(&t.ID, &t.MisionID, &t.Titulo, &t.Estado, &t.ContratoRuta, &t.ContratoOKEn,
-			&t.RojoEn, &t.VerdeEn, &tb, &ev); err != nil {
+			&t.RojoEn, &t.VerdeEn, &tb, &ev, &t.Celula, &t.OwnerAgenteID, &bp); err != nil {
 			return nil, err
 		}
-		if err := errors.Join(json.Unmarshal([]byte(tb), &t.TestsBloqueados), json.Unmarshal([]byte(ev), &t.Evidencia)); err != nil {
+		if err := errors.Join(json.Unmarshal([]byte(tb), &t.TestsBloqueados), json.Unmarshal([]byte(ev), &t.Evidencia),
+			json.Unmarshal([]byte(bp), &t.BloqueadaPor)); err != nil {
 			return nil, fmt.Errorf("tarea %s: %w", t.ID, err)
 		}
 		ts = append(ts, t)

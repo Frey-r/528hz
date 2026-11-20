@@ -169,6 +169,11 @@ func (q Maquina) comando(cmd string) (string, error) {
 
 // Contrato crea la tarea; el contrato debe existir antes que cualquier test o código (RG-2.1).
 func (q Maquina) Contrato(id, titulo, contrato string, aprobado bool, mision string) error {
+	return q.ContratoConDAG(id, titulo, contrato, aprobado, mision, "", nil)
+}
+
+// ContratoConDAG crea la tarea con su célula y sus dependencias en el tablero (D-0028).
+func (q Maquina) ContratoConDAG(id, titulo, contrato string, aprobado bool, mision, celula string, bloqueadaPor []string) error {
 	if _, err := q.M.Tarea(id); err == nil {
 		return verificacion("la tarea %s ya existe", id)
 	} else if !errors.Is(err, motor.ErrNoExiste) {
@@ -177,7 +182,11 @@ func (q Maquina) Contrato(id, titulo, contrato string, aprobado bool, mision str
 	if _, err := os.Stat(filepath.Join(q.Raiz, contrato)); err != nil {
 		return verificacion("el contrato %s no existe: el contrato va antes que los tests (RG-2.1)", contrato)
 	}
-	t := motor.Tarea{ID: strings.ToUpper(id), Titulo: titulo, Estado: "contrato", ContratoRuta: filepath.ToSlash(contrato), MisionID: mision}
+	for i, dep := range bloqueadaPor {
+		bloqueadaPor[i] = strings.ToUpper(strings.TrimSpace(dep))
+	}
+	t := motor.Tarea{ID: strings.ToUpper(id), Titulo: titulo, Estado: "contrato", ContratoRuta: filepath.ToSlash(contrato),
+		MisionID: mision, Celula: celula, BloqueadaPor: bloqueadaPor}
 	if aprobado {
 		t.ContratoOKEn = ahora()
 	}

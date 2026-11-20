@@ -1,7 +1,7 @@
 // Contrato: contratos/plugin.md §3. Lógica pura de los guardias (sin $).
 import { expect, test } from 'claude-code/testing'
 
-import { coincide, escribeEnBash, evaluarEntrada, firmas, puntero, relativizar, retener, type Hooks } from './nucleo'
+import { coincide, escribeEnBash, evaluarEntrada, firmas, lineaSupervisor, puntero, relativizar, retener, tareaDeDescripcion, Vigia, type Hooks } from './nucleo'
 
 const RAIZ = 'C:\\proy\\demo'
 
@@ -19,6 +19,7 @@ const H: Hooks = {
     { id: 'RD-2', orden: 'No escribas en tickets.', remediacion: 'Usa el mock.', herramientas: ['mcp__tickets__crear'], rutas: [], bash: ['curl .*tickets\\.ejemplo/api'] },
   ],
   secretos: ['.env'],
+  arriendos: [],
 }
 
 const ruta = (rel: string) => `${RAIZ}\\${rel.replaceAll('/', '\\')}`
@@ -97,4 +98,54 @@ test('el puntero resume el estado en a lo más 15 líneas', () => {
   const p = puntero(H)
   expect(p).toContain('Harness 528hz activo')
   expect(p.split('\n').length).toBeLessThanOrEqual(15)
+})
+
+// ── Orquestación (contratos/plugin.md §4) ──
+
+const FUTURO = new Date(Date.now() + 3_600_000).toISOString()
+const PASADO = new Date(Date.now() - 3_600_000).toISOString()
+
+test('arriendos: solo el titular escribe; el resto recibe a quién pedirlo; los vencidos no aplican', () => {
+  const h: Hooks = { ...H, arriendos: [{ ruta: 'app/cobro.go', agente: 'ag1', tarea: 'T-7', expira: FUTURO }] }
+  const ajeno = evaluarEntrada(h, 'Edit', { file_path: ruta('app/cobro.go') }, RAIZ, 'ag2')
+  expect(ajeno).toContain('ag1')
+  expect(ajeno).toContain('SendMessage')
+  expect(evaluarEntrada(h, 'Edit', { file_path: ruta('app/cobro.go') }, RAIZ, 'ag1')).toBeUndefined()
+  expect(evaluarEntrada(h, 'Write', { file_path: ruta('app/cobro.go') }, RAIZ)).toContain('ag1')
+  expect(evaluarEntrada(h, 'Read', { file_path: ruta('app/cobro.go') }, RAIZ, 'ag2')).toBeUndefined()
+  const vencido: Hooks = { ...H, arriendos: [{ ruta: 'app/cobro.go', agente: 'ag1', tarea: 'T-7', expira: PASADO }] }
+  expect(evaluarEntrada(vencido, 'Edit', { file_path: ruta('app/cobro.go') }, RAIZ, 'ag2')).toBeUndefined()
+})
+
+test('la línea de supervisor dice a quién escalar', () => {
+  expect(lineaSupervisor('a123')).toContain('a123')
+  expect(lineaSupervisor('a123')).toContain('SendMessage')
+  expect(lineaSupervisor(undefined)).toContain('sesión principal')
+})
+
+test('el vigía alerta una sola vez al quinto error seguido y se rearma con un éxito', () => {
+  const v = new Vigia(5)
+  const serie = (n: number) => Array.from({ length: n }, () => v.registrar('ag1', true))
+  expect(serie(4)).toEqual([false, false, false, false])
+  expect(v.registrar('ag1', true)).toBe(true)
+  expect(v.registrar('ag1', true)).toBe(false)
+  v.registrar('ag1', false)
+  expect(serie(4)).toEqual([false, false, false, false])
+  expect(v.registrar('ag1', true)).toBe(true)
+  expect(v.registrar('ag2', true)).toBe(false)
+})
+
+test('arriendos por tarea: un agente de la misma tarea escribe aunque el titular sea su líder', () => {
+  const h: Hooks = { ...H, arriendos: [{ ruta: 'app/cobro.go', agente: 'lider-pagos', tarea: 'T-7', expira: FUTURO }] }
+  expect(evaluarEntrada(h, 'Edit', { file_path: ruta('app/cobro.go') }, RAIZ, 'ag5', 'T-7')).toBeUndefined()
+  expect(evaluarEntrada(h, 'Edit', { file_path: ruta('app/cobro.go') }, RAIZ, 'ag6', 'T-9')).toContain('lider-pagos')
+  expect(tareaDeDescripcion('implementador t-7 · cobro')).toBe('T-7')
+  expect(tareaDeDescripcion('explorar el repo')).toBeUndefined()
+})
+
+test('bash: operadores entre comillas son datos y los segmentos `hz` son el camino sancionado', () => {
+  expect(escribeEnBash(H, `hz tarjeta registrar T-1 --texto "evidencia: 'hz tdd verde' -> VERDE; sumar_test.go intacto"`)).toBeUndefined()
+  expect(escribeEnBash(H, `grep "x > y" tests/sumar_test.go`)).toBeUndefined()
+  expect(escribeEnBash(H, `hz tdd estado && echo x > tests/sumar_test.go`)).toContain('RG-2.3')
+  expect(escribeEnBash(H, `echo x > "tests/sumar_test.go"`)).toContain('RG-2.3')
 })

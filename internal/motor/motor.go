@@ -135,7 +135,7 @@ func (m *Motor) Reindex() (Resumen, error) {
 		return res, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	for _, t := range []string{"decisiones", "decisiones_fts", "tareas_tdd", "meta"} {
+	for _, t := range []string{"decisiones", "decisiones_fts", "tareas_tdd", "arriendos", "traspasos", "meta"} {
 		if _, err := tx.Exec("DELETE FROM " + t); err != nil {
 			return res, err
 		}

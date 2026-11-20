@@ -37,23 +37,32 @@ type ReglaExportada struct {
 
 // Hooks es el contrato v2 entre `hz` y el plugin.
 type Hooks struct {
-	Version         int              `json:"version"`
-	Generado        string           `json:"generado"`
-	Nivel           string           `json:"nivel"`
-	Modo            string           `json:"modo"`
-	Resumen         []string         `json:"resumen"`
-	TareasActivas   []Activa         `json:"tareas_activas"`
-	TestsBloqueados []string         `json:"tests_bloqueados"`
-	Protegidos      []string         `json:"protegidos"`
-	ReglasDuras     []ReglaExportada `json:"reglas_duras"`
-	Secretos        []string         `json:"secretos"`
+	Version         int                 `json:"version"`
+	Generado        string              `json:"generado"`
+	Nivel           string              `json:"nivel"`
+	Modo            string              `json:"modo"`
+	Resumen         []string            `json:"resumen"`
+	TareasActivas   []Activa            `json:"tareas_activas"`
+	TestsBloqueados []string            `json:"tests_bloqueados"`
+	Protegidos      []string            `json:"protegidos"`
+	ReglasDuras     []ReglaExportada    `json:"reglas_duras"`
+	Secretos        []string            `json:"secretos"`
+	Arriendos       []ArriendoExportado `json:"arriendos"`
+}
+
+// ArriendoExportado es un arriendo vigente que el hook hace respetar.
+type ArriendoExportado struct {
+	Ruta   string `json:"ruta"`
+	Agente string `json:"agente"`
+	Tarea  string `json:"tarea"`
+	Expira string `json:"expira"`
 }
 
 // Construir arma el contenido sin escribirlo.
 func Construir(m *motor.Motor, raiz string) (Hooks, error) {
 	h := Hooks{Version: 2, Generado: time.Now().Format(time.RFC3339), Nivel: "N1",
 		TareasActivas: []Activa{}, TestsBloqueados: []string{}, Protegidos: proyecto.Protegidos,
-		ReglasDuras: []ReglaExportada{}, Secretos: []string{}}
+		ReglasDuras: []ReglaExportada{}, Secretos: []string{}, Arriendos: []ArriendoExportado{}}
 	perfil, err := proyecto.Cargar(raiz)
 	switch {
 	case err == nil:
@@ -91,6 +100,13 @@ func Construir(m *motor.Motor, raiz string) (Hooks, error) {
 			h.TestsBloqueados = append(h.TestsBloqueados, tb.Ruta)
 		}
 		h.TareasActivas = append(h.TareasActivas, a)
+	}
+	arriendos, err := m.Arriendos()
+	if err != nil {
+		return h, err
+	}
+	for _, a := range arriendos {
+		h.Arriendos = append(h.Arriendos, ArriendoExportado{Ruta: a.Ruta, Agente: a.Agente, Tarea: a.Tarea, Expira: a.Expira.Format(time.RFC3339)})
 	}
 	total, err := m.ContarDecisiones()
 	if err != nil {
