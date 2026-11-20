@@ -1,0 +1,14 @@
+# Perfil del propio repo 528hz (dogfooding del harness)
+version: 1
+enabled: true
+nivel: N1            # N1 mapa · N2 normas · N3 misiones
+modo: genesis        # genesis | mejora
+idioma: es
+rutas:
+  agents: AGENTS.md
+  docs: docs
+  decisiones_log: .harness/log/decisiones.jsonl
+  contratos: contratos
+comandos: {}         # se completan cuando exista código (test, lint, build, verificar)
+reglas_generales: [RG-1, RG-2, RG-3]
+reglas_duras: .harness/reglas.yaml   # se define al pasar a N2

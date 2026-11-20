@@ -1,0 +1,14 @@
+# Motor SQLite: índice reconstruible desde .harness/log/*.jsonl
+.harness/harness.db
+.harness/harness.db-*
+
+# Dependencias y builds
+node_modules/
+dist/
+.bun/
+
+# Sistema y editores
+.DS_Store
+Thumbs.db
+*.swp
+*~

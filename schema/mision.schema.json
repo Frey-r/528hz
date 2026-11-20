@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://528hz.local/schema/mision.schema.json",
+  "title": "Misión 528hz (.harness/misiones/<id>/mision.yaml)",
+  "type": "object",
+  "required": ["id", "titulo", "modo", "objetivo", "presupuesto", "aceptacion"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+    "titulo": { "type": "string" },
+    "modo": { "enum": ["genesis", "mejora"] },
+    "objetivo": { "type": "string" },
+    "non_goals": { "type": "array", "items": { "type": "string" } },
+    "hitos": {
+      "description": "Solo Génesis.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "titulo"],
+        "properties": {
+          "id": { "type": "string" },
+          "titulo": { "type": "string" },
+          "funcionalidades": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "verticales": {
+      "description": "Solo Mejora. Dimensiones esenciales del producto que enfocan las mejoras.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "nombre", "peso", "metricas"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^V-[a-z0-9-]+$" },
+          "nombre": { "type": "string" },
+          "peso": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+          "metricas": {
+            "type": "array",
+            "minItems": 3,
+            "description": "Al menos una métrica por familia: efectividad (qué tan bien), impacto y fallos (D-0022).",
+            "allOf": [
+              { "contains": { "properties": { "familia": { "const": "efectividad" } } } },
+              { "contains": { "properties": { "familia": { "const": "impacto" } } } },
+              { "contains": { "properties": { "familia": { "const": "fallos" } } } }
+            ],
+            "items": {
+              "type": "object",
+              "required": ["id", "familia", "sensor", "direccion", "meta"],
+              "properties": {
+                "id": { "type": "string" },
+                "familia": { "enum": ["efectividad", "impacto", "fallos"] },
+                "sensor": { "type": "string", "description": "Comando determinista; emite JSON por ítem. Admite {ronda}." },
+                "direccion": { "enum": ["sube", "baja"] },
+                "linea_base": { "type": ["number", "null"] },
+                "meta": { "type": "number" },
+                "piso_ruido": { "type": ["number", "null"] }
+              }
+            }
+          }
+        }
+      }
+    },
+    "estadistica": {
+      "type": "object",
+      "properties": {
+        "k_propuesta_milestone": { "type": "number", "default": 2, "description": "Si el salto supera k × piso de ruido, el harness PROPONE un milestone; siempre lo define el usuario (D-0019)." },
+        "fraccion_holdout": { "type": "number", "default": 0.15 },
+        "rotar_holdout_en_milestone": { "type": "boolean", "default": true }
+      }
+    },
+    "presupuesto": {
+      "type": "object",
+      "required": ["usd_max"],
+      "properties": {
+        "usd_max": { "type": "number" },
+        "rondas_por_dia": { "type": "integer" },
+        "agentes_paralelos_max": { "type": "integer", "default": 9 },
+        "procesos_bg_max": { "type": "integer", "default": 6 },
+        "tokens_por_agente": { "type": "integer" }
+      }
+    },
+    "gates": {
+      "type": "array",
+      "description": "Gates operativos (gasto, contratos, enjambre). Las RD se declaran en reglas.yaml.",
+      "items": {
+        "type": "object",
+        "required": ["id", "tipo", "match"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^G-[a-z0-9-]+$" },
+          "tipo": { "enum": ["gasto", "contrato", "enjambre", "cierre", "otro"] },
+          "match": {
+            "type": "object",
+            "properties": {
+              "herramienta": { "type": "string" },
+              "input": { "type": "object" },
+              "bash": { "type": "string" }
+            }
+          },
+          "remediacion": { "type": "string" }
+        }
+      }
+    },
+    "aceptacion": {
+      "description": "Contrato de cierre default-FAIL: todo criterio arranca en false.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "texto", "cumplido"],
+        "properties": {
+          "id": { "type": "string" },
+          "texto": { "type": "string" },
+          "cumplido": { "type": "boolean", "default": false, "description": "Arranca en false (default-FAIL). Solo `hz contrato marcar` lo cambia, con evidencia." },
+          "evidencia": { "type": ["object", "null"] }
+        }
+      }
+    }
+  }
+}

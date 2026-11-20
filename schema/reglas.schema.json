@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://528hz.local/schema/reglas.schema.json",
+  "title": "Reglas duras del proyecto (.harness/reglas.yaml)",
+  "description": "Solo el humano modifica este archivo (vía /hz regla). El agente tiene denegada su edición.",
+  "type": "object",
+  "required": ["version", "reglas"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "const": 1 },
+    "reglas": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "orden", "por_que", "origen", "desde", "enforcement", "estado"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^RD-[0-9]+$" },
+          "clave_catalogo": { "type": "string", "description": "Clave de reglas/catalogo-rd.md de la que deriva, si aplica." },
+          "orden": { "type": "string", "description": "Texto imperativo, una sola orden." },
+          "por_que": { "type": "string" },
+          "origen": { "enum": ["genesis", "mejora", "incidente"] },
+          "desde": { "type": "string", "format": "date" },
+          "enforcement": {
+            "type": "array",
+            "minItems": 2,
+            "description": "Defensa en profundidad: al menos dos capas.",
+            "items": { "enum": ["permisos", "hook", "githook", "ci", "sensor", "rubrica"] }
+          },
+          "patrones": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "herramientas": { "type": "array", "items": { "type": "string" } },
+              "bash": { "type": "array", "items": { "type": "string", "description": "Regex" } },
+              "rutas": { "type": "array", "items": { "type": "string", "description": "Glob" } },
+              "dominios": { "type": "array", "items": { "type": "string" } }
+            }
+          },
+          "allowlist": {
+            "type": "array",
+            "description": "Caminos permitidos para la acción (p. ej. 'hz git push').",
+            "items": { "type": "string" }
+          },
+          "remediacion": { "type": "string", "description": "Qué hacer en su lugar; se muestra en cada denegación." },
+          "red_team": { "type": "array", "items": { "type": "string" } },
+          "estado": { "enum": ["vigente", "inefectiva", "modificada", "retirada"] }
+        }
+      }
+    }
+  }
+}

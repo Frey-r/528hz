@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://528hz.local/schema/harness.schema.json",
+  "title": "Perfil de proyecto 528hz (.harness/harness.yaml)",
+  "type": "object",
+  "required": ["version", "enabled", "nivel", "modo"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "const": 1 },
+    "enabled": { "type": "boolean" },
+    "nivel": { "enum": ["N1", "N2", "N3"] },
+    "modo": { "enum": ["genesis", "mejora"] },
+    "idioma": { "type": "string", "default": "es" },
+    "rutas": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "agents": { "type": "string", "default": "AGENTS.md" },
+        "docs": { "type": "string", "default": "docs" },
+        "contratos": { "type": "string", "default": "contratos" },
+        "decisiones_log": { "type": "string", "default": ".harness/log/decisiones.jsonl" },
+        "vista_decisiones": { "type": "string", "default": "docs/decisiones/INDICE.md" }
+      }
+    },
+    "comandos": {
+      "type": "object",
+      "description": "Comando único por acción. El agente no improvisa comandos.",
+      "additionalProperties": { "type": "string" },
+      "properties": {
+        "test": { "type": "string" },
+        "test_afectados": { "type": "string" },
+        "lint": { "type": "string" },
+        "tipos": { "type": "string" },
+        "build": { "type": "string" },
+        "run": { "type": "string" },
+        "e2e": { "type": "string" }
+      }
+    },
+    "dominios": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "ruta"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "ruta": { "type": "string" },
+          "responsabilidad": { "type": "string" }
+        }
+      }
+    },
+    "fronteras": {
+      "type": "array",
+      "description": "Reglas de dependencia verificadas por `hz check` (V0).",
+      "items": {
+        "type": "object",
+        "required": ["desde", "no_puede_importar"],
+        "properties": {
+          "desde": { "type": "string" },
+          "no_puede_importar": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "zonas_no_editables": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["glob", "remediacion"],
+        "properties": {
+          "glob": { "type": "string" },
+          "remediacion": { "type": "string" }
+        }
+      }
+    },
+    "limites": {
+      "type": "object",
+      "properties": {
+        "lineas_max_archivo": { "type": "integer", "default": 400 },
+        "lineas_max_agents_raiz": { "type": "integer", "default": 100 },
+        "lineas_max_agents_dominio": { "type": "integer", "default": 40 }
+      }
+    },
+    "reglas_generales": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^RG-[0-9]+$" },
+      "default": ["RG-1", "RG-2", "RG-3"]
+    },
+    "reglas_duras": { "type": "string", "default": ".harness/reglas.yaml" },
+    "tdd": {
+      "type": "object",
+      "properties": {
+        "obligatorio": { "type": "boolean", "default": true },
+        "exenciones": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["docs/**", "*.md", "config trivial", "renombre mecanico"]
+        },
+        "rutas_tests": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "verificacion": {
+      "type": "object",
+      "description": "Escalera V0–V5 por tipo de cambio.",
+      "properties": {
+        "por_tipo": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": { "enum": ["V0", "V1", "V2", "V3", "V4", "V5", "humano"] }
+          },
+          "default": {
+            "bugfix": ["V0", "V1", "V2"],
+            "feature": ["V0", "V1", "V2", "V3", "V5"],
+            "refactor": ["V0", "V1", "V2"],
+            "ia": ["V0", "V1", "V4"],
+            "infra_seguridad": ["V0", "V5", "humano"]
+          }
+        },
+        "holdout_ruta": { "type": "string", "description": "Fuera del repo; solo la ve el evaluador." }
+      }
+    },
+    "lecciones": {
+      "type": "object",
+      "properties": {
+        "indice_desde": { "type": "integer", "default": 30, "description": "Sin tope de lecciones. Sobre este número pasan a modo índice (SQLite + inyección justo a tiempo). Cada skill cuesta ≈69 tokens por request (spike S3)." },
+        "sesiones_sin_disparo_para_poda": { "type": "integer", "default": 30 },
+        "reescrituras_max": { "type": "integer", "default": 2 }
+      }
+    },
+    "enjambre": {
+      "type": "object",
+      "description": "El tamaño lo calcula `hz capacidad` según hardware y viabilidad (D-0023). Los modelos los decide el orquestador (D-0024).",
+      "properties": {
+        "lideres_max": { "oneOf": [{ "const": "auto" }, { "type": "integer", "minimum": 1 }], "default": "auto" },
+        "reserva_ram_gb": { "type": "number", "default": 4, "description": "RAM que nunca se asigna a células." },
+        "profundidad": { "type": "integer", "default": 3 },
+        "reintentos_por_rol": { "type": "integer", "default": 2 }
+      }
+    },
+    "monitoreo": {
+      "type": "object",
+      "description": "Monitoreo de producción (pilar 8), opcional por proyecto (D-0032). Si no se declara, no se carga.",
+      "required": ["habilitado", "skill"],
+      "additionalProperties": false,
+      "properties": {
+        "habilitado": { "type": "boolean", "default": false },
+        "skill": { "type": "string", "description": "Skill de monitoreo del proyecto, p. ej. grafana-loki." },
+        "fuentes": { "type": "array", "items": { "type": "object" }, "description": "Qué consultar, en los términos de esa skill." },
+        "usos": { "type": "array", "items": { "enum": ["sensores", "triage"] }, "default": ["sensores", "triage"] },
+        "acceso": { "const": "solo_lectura" }
+      }
+    },
+    "servicios_permitidos": {
+      "type": "array",
+      "description": "Dominios a los que se puede enviar contenido (regla exfiltracion).",
+      "items": { "type": "string" }
+    }
+  }
+}
