@@ -157,7 +157,7 @@ Se mandan **referencias**, nunca transcripts ni archivos completos. Todo mensaje
 
 ### Coordinación
 - **Tablero = DAG en SQLite** (`hz tablero`; tabla `tareas_tdd` con `bloqueada_por`, `owner_agente_id` y `celula`). El director calcula el **frente listo** (tareas sin bloqueos) con `hz tablero listo` y lo asigna según la capacidad.
-- **Arriendos de archivos** (tabla `arriendos`: agente, tarea, ruta, expiración):
+- **Arriendos de archivos** (tabla `arriendos`: agente, tarea, ruta, expiración). El líder arrienda **a nombre de la tarea** (`hz arriendo tomar … --agente lider-<c> --tarea T-n`), y escribe todo agente lanzado con descripción `«<rol> T-n»` (D-0037):
   - Editar un archivo arrendado por otro se deniega con la remediación «pídelo a `<agente>` por SendMessage».
   - El arriendo se renueva con la actividad y expira si el agente muere.
 - **Archivos compartidos** (contratos globales, configuración común): solo los cambia el contratista, con decisión y aviso `CAMBIO-CONTRATO`.

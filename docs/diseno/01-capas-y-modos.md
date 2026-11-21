@@ -10,16 +10,16 @@
 | 4. Memoria operativa | SQLite: decisiones, reglas, errores, lecciones, evals, verticales, rondas, milestones, traspasos, arriendos | `<repo>/.harness/` (`log/*.jsonl` versionado + `harness.db`) | Solo vía `hz` |
 | 5. Misiones | Trabajo largo: Génesis o Mejora | `<repo>/.harness/misiones/<id>/` | Director + humano |
 | 5b. Orquestación | Roles, relevo supervisado, conversación entre agentes, enjambres | Plugin (agentes + hooks) + tablero de tareas + SQLite | — |
-| 6. Observabilidad (después) | Ledger → status line/pane → dashboard web | `~/.harness/` | — |
+| 6. Observabilidad | Actividad en el plugin (`$.state`) → status line, pane `hz-panel` y snapshot `.harness/cache/actividad.json` → `hz panel [--json]` → `hz dashboard` (web local, árbol + carriles, D-0050) | Plugin + `<repo>/.harness/cache/` | `contratos/plugin.md` §7 |
 
 ## Componentes del plugin
 
 | Componente | Contenido |
 |---|---|
 | **Skills** | `hz` (activar, descubrir, estado, aprobar, regla, aprender, informe, enjambre) y las lecciones (`hz-leccion-*`, por proyecto o globales). |
-| **Agentes de rol** | `hz-director`, `hz-lider`, `hz-contratista`, `hz-tester`, `hz-implementador`, `hz-verificador`, `hz-evaluador`, `hz-registrador`, `hz-integrador`, `hz-curador`, `hz-diagnosticador`, `hz-medidor`, `hz-oraculo`. Cada uno tiene allowlist de herramientas y su modelo (ver `11-orquestacion.md`). |
+| **Agentes de rol** | `hz-director`, `hz-lider`, `hz-contratista`, `hz-tester`, `hz-implementador`, `hz-verificador`, `hz-evaluador`, `hz-registrador`, `hz-integrador`, `hz-curador`, `hz-diagnosticador`, `hz-medidor`, `hz-oraculo`. Cada uno tiene su allowlist de herramientas; el modelo lo decide el orquestador (D-0024, ver `11-orquestacion.md`). |
 | **Hooks (mod)** | `tool.call` aplica RD, el orden TDD, los arriendos y la inyección justo a tiempo de AGENTS.md del dominio y de lecciones. `agent.spawn` inyecta el paquete de rol y aplica límites. `agent.report` guarda las tarjetas. `session.send` audita mensajes. `session.start` agrega un puntero breve al estado. |
-| **CLI `hz`** (Bun + TypeScript) | Sensores deterministas y acceso al motor: `decision`, `regla`, `error`, `leccion`, `tdd`, `salida`, `contexto`, `equipo`, `arriendo`, `estado`, `compare`, `check`, `reindex`, `informe`. |
+| **CLI `hz`** (Go, binario único; D-0033) | Sensores deterministas y acceso al motor: `decision`, `regla`, `error`, `leccion`, `tdd`, `salida`, `contexto`, `equipo`, `arriendo`, `estado`, `compare`, `check`, `reindex`, `informe`. |
 
 ## Modo Génesis (proyecto desde 0)
 ```

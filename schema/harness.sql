@@ -2,8 +2,14 @@
 -- Índice consultable. La fuente versionada es .harness/log/*.jsonl; `hz reindex` reconstruye esta base.
 -- Convención: IDs legibles con prefijo (D-, RD-, E-, L-, T-, R-, M-, G-, TR-, MS-).
 
-PRAGMA foreign_keys = ON;
-PRAGMA journal_mode = WAL;
+-- Sin claves foráneas forzadas: el índice se reconstruye reproduciendo logs y la integridad la valida `hz`.
+
+-- Estado de la indexación: tamaño de cada log al último reindex/escritura.
+-- Si un log cambió por fuera (git pull, merge), `hz` reindexa solo.
+CREATE TABLE IF NOT EXISTS meta (
+  clave TEXT PRIMARY KEY,
+  valor TEXT NOT NULL
+);
 
 -- ───────────────────────── Misiones ─────────────────────────
 CREATE TABLE IF NOT EXISTS misiones (
@@ -51,8 +57,8 @@ CREATE TABLE IF NOT EXISTS rondas (
   numero        INTEGER NOT NULL,
   foco          TEXT,                            -- verticales atacadas (JSON array)
   commit_foto   TEXT,
-  veredicto     TEXT CHECK (veredicto IN ('mejora','ruido','regresion')),
-  decision_id   TEXT,                            -- mantener / revertir
+  veredicto     TEXT CHECK (veredicto IN ('mantener','revertir')),   -- decisión de la ronda; el veredicto por métrica lo da hz compare
+  decision_id   TEXT,
   costo_usd     REAL,
   iniciada_en   TEXT NOT NULL,
   cerrada_en    TEXT,
@@ -80,6 +86,30 @@ CREATE TABLE IF NOT EXISTS milestones (
   resumen       TEXT NOT NULL,                   -- una línea: qué cambió
   decision_id   TEXT,
   creado_en     TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS gastos (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  mision_id     TEXT NOT NULL REFERENCES misiones(id),
+  usd           REAL NOT NULL,
+  concepto      TEXT,
+  en            TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS aceptaciones (      -- contrato default-FAIL: criterio cumplido solo con evidencia
+  mision_id     TEXT NOT NULL REFERENCES misiones(id),
+  criterio      TEXT NOT NULL,
+  evidencia     TEXT NOT NULL,
+  en            TEXT NOT NULL,
+  PRIMARY KEY (mision_id, criterio)
+);
+
+CREATE TABLE IF NOT EXISTS pisos (             -- piso de ruido medido con hz ruido (prevalece sobre mision.yaml)
+  mision_id     TEXT NOT NULL REFERENCES misiones(id),
+  metrica_id    TEXT NOT NULL,
+  piso          REAL NOT NULL,
+  en            TEXT NOT NULL,
+  PRIMARY KEY (mision_id, metrica_id)
 );
 
 CREATE TABLE IF NOT EXISTS gates (
@@ -220,7 +250,8 @@ CREATE TABLE IF NOT EXISTS errores (
 CREATE TABLE IF NOT EXISTS lecciones (
   id            TEXT PRIMARY KEY,                -- L-…
   clase_id      TEXT NOT NULL REFERENCES clases_error(id),
-  skill_ruta    TEXT NOT NULL,                   -- .claude/skills/hz-leccion-<clase>/SKILL.md
+  skill_ruta    TEXT NOT NULL,                   -- nombre de la skill: .claude/skills/<skill>/SKILL.md
+  descripcion   TEXT,
   alcance       TEXT NOT NULL DEFAULT 'proyecto' CHECK (alcance IN ('proyecto','global')),
   estado        TEXT NOT NULL DEFAULT 'en_prueba' CHECK (estado IN ('en_prueba','activa','reescrita','eliminada','podada')),
   reescrituras  INTEGER NOT NULL DEFAULT 0,

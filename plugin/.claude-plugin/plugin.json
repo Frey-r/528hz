@@ -1,0 +1,6 @@
+{
+  "name": "hz",
+  "version": "0.2.0",
+  "description": "Harness 528hz: TDD obligatorio, reglas duras en capas, DLP de secretos, contexto justo a tiempo y panel de agentes para flujos agénticos largos.",
+  "types": "./types/index.d.ts"
+}

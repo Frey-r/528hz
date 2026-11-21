@@ -1,6 +1,6 @@
 # Índice de decisiones
 
-> Vista generada desde `.harness/log/decisiones.jsonl`. No editar a mano: la fuente es el log (RG-3).
+> Vista generada desde `.harness/log/decisiones.jsonl` (fuente, RG-3). No editar a mano. Ficha completa: `hz decision ver D-NNNN`.
 
 | ID | Cuándo | Qué | Decidió | Estado |
 |---|---|---|---|---|
@@ -36,5 +36,21 @@
 | D-0030 | 2026-11-20 17:45 | `hz capacidad` dimensiona el enjambre con RAM libre, núcleos y la carga medida por célula (≈45 MB por agente + pico de la célula) y frena lanzamientos si la RAM baja de la reserva. | agente_aprobado | vigente |
 | D-0031 | 2026-11-20 17:55 | Se omiten los pilares 6 (CI/CD autoreparable) y 7 (entrega progresiva) de general_description.md. | humano | vigente |
 | D-0032 | 2026-11-20 17:56 | El monitoreo de producción (pilar 8) es un módulo opcional por proyecto: la skill de monitoreo la declara cada proyecto (p. ej. grafana-loki), con acceso de solo lectura, para sensores de verticales y triage de incidentes. | humano | vigente |
-
-Ficha completa (cuándo, qué, por qué, alternativas): `hz decision ver D-NNNN` o la línea correspondiente del log.
+| D-0033 | 2026-11-20 18:15 | El CLI hz se escribe en Go (binario único), no en Bun + TypeScript | humano | vigente |
+| D-0034 | 2026-11-20 18:15 | Los hooks del plugin leen .harness/cache/hooks.json en vez de lanzar hz en cada tool call | agente | vigente |
+| D-0035 | 2026-11-20 18:43 | El registro de decisiones no depende solo del agente: el rol registrador revisa cada tarea cerrada y propone decisiones no registradas; la rúbrica del evaluador pregunta si hubo decisiones sin registrar | humano | vigente |
+| D-0036 | 2026-11-20 19:06 | El puntero de inicio de sesión lo entrega un hook de comando SessionStart (hz puntero) declarado en el hooks.json del plugin, no un hook de mod | agente | vigente |
+| D-0037 | 2026-11-20 20:15 | Los arriendos se toman por tarea: el líder arrienda los archivos a nombre de la tarea y puede escribirlos todo agente cuya descripción declare esa tarea («<rol> T-n») | agente | vigente |
+| D-0038 | 2026-11-20 20:15 | En el guardia de bash, los segmentos que invocan hz no se evalúan y los operadores entre comillas son datos | agente | vigente |
+| D-0039 | 2026-11-20 20:40 | El índice SQLite se versiona por hash del DDL: con otro esquema se descarta y se reconstruye desde los logs | agente | vigente |
+| D-0040 | 2026-11-20 20:40 | La primera lección real (L-0001, escapes por heredoc) no se activó: su eval de prevención falló porque sin la lección el error tampoco ocurrió; queda reescrita para mejorar el caso de reproducción | agente | vigente |
+| D-0041 | 2026-11-20 20:40 | El mutation testing (hz mutar) es la meta-eval estándar de los verificadores deterministas; sus sobrevivientes se registran como error test_debil | agente | vigente |
+| D-0042 | 2026-11-20 21:23 | Una propuesta de milestone solo cuenta métricas con piso de ruido conocido (medido con hz ruido o declarado en mision.yaml); al cerrar una ronda con mantener siempre se pregunta, y una ronda revertida no es candidata | agente | vigente |
+| D-0043 | 2026-11-20 21:23 | El presupuesto de misión es un circuit breaker en agent.spawn: hz exporta misiones activas con sin_presupuesto a hooks.json y el plugin deniega lanzar subagentes con remediación; usd_max se lee directo de mision.yaml | agente | vigente |
+| D-0044 | 2026-11-20 21:23 | El informe C-level es una página autocontenida que genera hz en Go (html/template, SVG calculado en Go, sin JS) y se publica como Artifact privado en la misma URL por milestone; hz informe --json es el contrato de datos | agente | vigente |
+| D-0045 | 2026-11-21 11:11 | El informe C-level es solo del modo Mejora continua; Génesis no tiene informe | humano | vigente |
+| D-0046 | 2026-11-21 11:19 | El verificador solo entrega una tarea si sus tests superan un umbral de mutation testing (verificacion.mutacion_min, 0.9 por defecto) en cada archivo de código tocado; hz mutar muestrea todo el archivo | humano | vigente |
+| D-0047 | 2026-11-21 11:26 | hz activar genera solo reglas deny nativas Read(ruta) y Edit(ruta); retira las Write(ruta) que generaron versiones anteriores cuando la ruta ya tiene su Edit(ruta) | agente | vigente |
+| D-0048 | 2026-11-21 11:26 | L-0001 (escapes por heredoc) se activó: el A/B que mide el proceso demostró la prevención; los evals de lecciones miden intentos fallidos y costo, no solo el resultado final | agente | vigente |
+| D-0049 | 2026-11-21 11:42 | Observabilidad: el plugin lleva la actividad por agente en $.state (sobrevive recargas), la muestra en la status line y en el pane /hz-panel (árbol por supervisor), y escribe un snapshot .harness/cache/actividad.json (al lanzar/terminar y como máximo cada 2 s) que lee hz panel [--json], contrato de datos del dashboard | agente | vigente |
+| D-0050 | 2026-11-21 11:44 | Dashboard web local: hz dashboard sirve en 127.0.0.1 una vista árbol + carriles (elegida por el humano) calculada en Go como SVG; la página solo refresca el fragmento cada 2 s; el plugin guarda los últimos 100 eventos por agente para los carriles | humano | vigente |
