@@ -116,7 +116,8 @@
             "infra_seguridad": ["V0", "V5", "humano"]
           }
         },
-        "holdout_ruta": { "type": "string", "description": "Fuera del repo; solo la ve el evaluador." }
+        "holdout_ruta": { "type": "string", "description": "Fuera del repo; solo la ve el evaluador." },
+        "mutacion_min": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.9, "description": "Detección mínima de hz mutar en los archivos de una tarea para que el verificador la entregue (D-0046). 0 desactiva la exigencia." }
       }
     },
     "lecciones": {

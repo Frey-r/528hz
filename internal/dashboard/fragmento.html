@@ -1,0 +1,22 @@
+<section class="panel cab" aria-label="Estado del proyecto">
+  <div class="titulo"><strong>{{.Proyecto}}</strong> · {{.Nivel}} · {{.Modo}}</div>
+  <ul class="chips">
+    <li>tareas TDD: {{.Tareas}}</li>
+    <li>arriendos: {{.Arriendos}}</li>
+    {{range .Misiones}}<li class="{{.Clase}}">{{.Texto}}{{if .ConTope}} <span class="barrita" role="img" aria-label="{{.Texto}}"><span style="{{.Ancho}}"></span></span>{{end}}</li>
+    {{end}}
+  </ul>
+</section>
+{{if .Filas}}<section class="panel">
+  <div class="grilla" role="table" aria-label="Agentes: árbol de supervisión y actividad en la ventana">
+    <div class="enc" role="row"><span role="columnheader">Agente</span><span class="eje" role="columnheader"><span>{{.EjeInicio}}</span><span>{{.EjeMedio}}</span><span>ahora</span></span><span role="columnheader">Resumen</span></div>
+    {{range .Filas}}<div class="fila {{.Clase}}" role="row">
+      <span class="nombre n{{.Nivel}}" role="cell" title="{{.Descripcion}}"><span class="glifo" aria-hidden="true">{{.Glifo}}</span>{{.Rol}}{{with .Tarea}} <span class="tarea">{{.}}</span>{{end}}</span>
+      <svg class="carril" role="img" aria-label="{{.Resumen}}" viewBox="0 0 600 24" preserveAspectRatio="none"><line class="base" x1="0" x2="600" y1="12" y2="12"/>{{range .Marcas}}<rect class="ev {{.Clase}}" x="{{.X}}" y="{{.Y}}" width="{{.Ancho}}" height="{{.Alto}}"/>{{end}}</svg>
+      <span class="resumen" role="cell">{{.Resumen}}</span>
+    </div>
+    {{end}}
+  </div>
+</section>
+<p class="leyenda"><span><i style="background:var(--serie)"></i>tool call</span><span><i style="background:var(--crit)"></i>error o denegación</span><span><i style="background:var(--serie-suave)"></i>lanzado</span><span><i style="background:var(--fg3)"></i>terminó</span><span>hueco = sin actividad</span></p>
+{{else}}<p class="panel vacio">sin actividad registrada: el plugin hz escribe .harness/cache/actividad.json mientras trabajan los agentes (lánzalos desde una sesión con el plugin activo).</p>{{end}}
