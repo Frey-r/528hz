@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -156,9 +157,7 @@ func Ejecutar(raiz, archivo, cmd string, max int, limite time.Duration) (Resulta
 		return r, fmt.Errorf("%w: la suite falla sin mutantes; mutation testing necesita una línea base en verde", tdd.ErrVerificacion)
 	}
 	sitios := Sitios(string(original), strings.ToLower(filepath.Ext(archivo)))
-	if max > 0 && len(sitios) > max {
-		sitios = sitios[:max]
-	}
+	sitios = Muestra(sitios, max)
 	for _, s := range sitios {
 		if err := os.WriteFile(ruta, []byte(Aplicar(string(original), s)), 0o644); err != nil {
 			return r, err
@@ -174,8 +173,61 @@ func Ejecutar(raiz, archivo, cmd string, max int, limite time.Duration) (Resulta
 			r.Sobrevivientes = append(r.Sobrevivientes, s)
 		}
 	}
+	r.Tasa = 1 // sin sitios mutables no hay fallas que la suite deba detectar
 	if r.Total > 0 {
 		r.Tasa = float64(r.Detectados) / float64(r.Total)
 	}
 	return r, nil
+}
+
+// Muestra elige hasta max sitios con paso uniforme, del primero al último: así la meta-eval cubre
+// todo el archivo y no solo su comienzo. max ≤ 0 significa sin tope.
+func Muestra(sitios []Sitio, max int) []Sitio {
+	n := len(sitios)
+	if max <= 0 || n <= max {
+		return sitios
+	}
+	if max == 1 {
+		return sitios[:1]
+	}
+	out := make([]Sitio, max)
+	for i := range out {
+		out[i] = sitios[i*(n-1)/(max-1)]
+	}
+	return out
+}
+
+// extensionesDeCodigo son los lenguajes cuyos archivos exige medir el verificador.
+// (Listas como datos: así la meta-eval no siembra mutantes en una tabla.)
+var (
+	extensionesDeCodigo = conjunto(".go .ts .tsx .js .jsx .mjs .cjs .py .rb .java .kt .kts .cs .rs .c .h .cc .cpp .hpp .swift .php .scala .lua .dart .vue .svelte")
+	carpetasDeTests     = conjunto("test tests __tests__ spec specs")
+)
+
+func conjunto(lista string) map[string]struct{} {
+	out := map[string]struct{}{}
+	for _, x := range strings.Fields(lista) {
+		out[x] = struct{}{}
+	}
+	return out
+}
+
+// EsCodigoDeProduccion indica si una ruta es código fuente que no es test (por convención de nombre o carpeta).
+func EsCodigoDeProduccion(ruta string) bool {
+	ruta = strings.ToLower(filepath.ToSlash(ruta))
+	ext := path.Ext(ruta)
+	if _, esCodigo := extensionesDeCodigo[ext]; !esCodigo {
+		return false
+	}
+	base := strings.TrimSuffix(path.Base(ruta), ext)
+	if strings.HasSuffix(base, "_test") || strings.HasSuffix(base, "_spec") || strings.HasSuffix(base, ".test") ||
+		strings.HasSuffix(base, ".spec") || strings.HasPrefix(base, "test_") {
+		return false
+	}
+	for _, seg := range strings.Split(path.Dir(ruta), "/") {
+		if _, esTest := carpetasDeTests[seg]; esTest {
+			return false
+		}
+	}
+	return true
 }

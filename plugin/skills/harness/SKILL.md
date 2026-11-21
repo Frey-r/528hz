@@ -32,7 +32,10 @@ No registres ediciones triviales. En commits, agrega el trailer `Decision: D-NNN
 - **Reglas duras (RD)** del proyecto: `.harness/reglas.yaml`. Son inquebrantables. Si un hook te deniega algo, no busques un rodeo: intentar evadir una RD es un error crítico.
 
 ## Antes de entregar
-`hz check` y la suite del proyecto (comandos en `.harness/harness.yaml`). Entrega con evidencia ejecutada (comando + resultado).
+`hz check` y la suite del proyecto (comandos en `.harness/harness.yaml`). Entrega con evidencia ejecutada (comando + resultado). Que los tests pasen no basta: `hz mutar --archivo <src> --tarea T-n` mide si detectan fallas (umbral `verificacion.mutacion_min`).
+
+## Ver qué está pasando
+`/hz-panel` abre el panel de agentes junto al chat (se abre solo al lanzar el primer subagente). `hz panel` muestra lo mismo en la terminal. `hz dashboard` abre la vista web local (árbol + carriles de actividad) en http://127.0.0.1:5280.
 
 ## Lo que no haces
 - No editas `.harness/reglas.yaml`, `.harness/log/`, `.claude/settings*.json` ni `.githooks/` (solo el humano o `hz`).

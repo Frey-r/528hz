@@ -53,6 +53,8 @@ Cada verificador (test, lint, sensor, gate, RD) se evalúa a sí mismo:
 
 **Regla del escape:** si un error llegó más allá de V3, se responde obligatoriamente «¿por qué no lo detectó?». La respuesta es un test, una regla o un sensor nuevo, y queda como decisión.
 
+**La detección es criterio de salida (D-0046).** El verificador corre `hz mutar --archivo <src> --tarea T-n` sobre cada archivo de código que tocó la tarea. `hz salida --rol verificador` exige una detección ≥ `verificacion.mutacion_min` (0,9 por defecto; 0 la desactiva) en cada archivo medido y en cada archivo de código arrendado por la tarea. `hz mutar` muestrea los sitios repartidos en todo el archivo: tomar solo los primeros sesgaba la medición hacia el comienzo, y al corregirlo bajaron de 100 % a 40–85 % varios archivos del propio harness.
+
 ### 3.3 Evals del agente y de sus lecciones
 - Tasa de error por cambio y por rol.
 - Recurrencia por clase de error.
@@ -109,7 +111,7 @@ Corre en un worktree, en el commit original, con un subagente **fresco** (rol `h
 
 | Eval | Pregunta | Criterio |
 |---|---|---|
-| **Prevención** | ¿Evita el error? Caso de reproducción A/B, con y sin la skill | Error en «sin» y no en «con» |
+| **Prevención** | ¿Evita el error? Caso de reproducción A/B, con y sin la skill | Error en «sin» y no en «con». **Se mide en el proceso** (intentos fallidos, llamadas, costo), no solo en el resultado final: un agente que verifica se recupera del error y termina bien igual, y el costo del error queda en los reintentos (D-0048) |
 | **Interferencia** | ¿Rompe algo en tareas vecinas de control? | 0 errores nuevos |
 | **Activación** | ¿Se carga cuando corresponde, y solo entonces? | Dispara en el caso; no dispara en los controles ajenos |
 

@@ -132,7 +132,7 @@ Cada transición agrega un evento `tdd.<estado>` en `tdd.jsonl` y regenera **`.h
 | contratista | El contrato existe y la tarea está registrada |
 | tester | Tarea en ROJO o posterior, con tests bloqueados |
 | implementador | Tarea en VERDE o REFACTOR **y** tests bloqueados intactos (hash) |
-| verificador | Tarea en VERDE o posterior, con evidencia ejecutada, y `check` en verde |
+| verificador | Tarea en VERDE o posterior, con evidencia ejecutada, `check` en verde **y meta-eval de sus tests** (D-0046): al menos una medición `hz mutar --tarea T-n`; cada archivo medido con detección ≥ `verificacion.mutacion_min` (0,9 por defecto, 0 la desactiva); y cada archivo de código arrendado por la tarea (que no sea test) medido |
 | evaluador / otros | Existe una tarjeta del rol para la tarea |
 
 ### Capacidad (D-0023, D-0030)
@@ -180,11 +180,14 @@ Cada transición agrega un evento `tdd.<estado>` en `tdd.jsonl` y regenera **`.h
   4. Alguno falla → `reescribir`, o `escalar al humano` si ya tiene 2 reescrituras.
 
 ### Meta-eval de verificadores (mutation testing, evals para lo determinista)
-`hz mutar --archivo <src> [--cmd "…"] [--max 20] [--timeout 120s]`
+`hz mutar --archivo <src> [--tarea T-n] [--cmd "…"] [--max 20] [--timeout 120s]`
 - Aplica mutaciones textuales, **una a la vez**, fuera de strings y comentarios: ` + `↔` - `, ` == `↔` != `, ` < `↔` >= `, ` > `↔` <= `, ` && `↔` || ` y `true`↔`false`.
 - Para cada mutante corre el comando (`comandos.test` por defecto): un mutante es **detectado** si el comando falla.
 - **Siempre restaura el original** (respaldo en `.harness/cache/mutar.bak` y verificación por hash).
+- Si hay más sitios que `--max`, toma una **muestra determinista repartida en todo el archivo** (paso uniforme), no solo los primeros.
+- Un archivo sin sitios mutables registra detección 1: no hay fallas que la suite deba detectar.
 - Informa la tasa de detección y los mutantes sobrevivientes (`línea:col operador`), que son candidatos a `test_debil`.
+- Con `--tarea T-n`, la medición queda además asociada a la tarea (`mutacion:T-n:<archivo>`): es lo que exige `hz salida --rol verificador`.
 - Registra la medición en `verificadores.jsonl`.
 
 ### Red-team de reglas duras (efectividad medida, D-0011/D-0026)
@@ -229,3 +232,24 @@ Cada transición agrega un evento `tdd.<estado>` en `tdd.jsonl` y regenera **`.h
   - comparación entre milestones;
   - gasto.
 - `hz informe <mision> --html <archivo>`: página autocontenida con el design system de `dash_example.jpg`. Los números salen del motor. Se publica como Artifact con la skill `hz:informe`.
+
+---
+
+# Incremento 3.6 · Observabilidad (contratos/plugin.md §7)
+
+### `hz panel [--json]`
+- Junta lo que el plugin vio (`.harness/cache/actividad.json`) con lo que sabe el motor: tareas TDD abiertas, arriendos vigentes y misiones activas con su gasto.
+- Sin `--json`: el árbol de agentes por supervisor, en ≤40 líneas, con los agentes vivos primero. Sin snapshot: «sin actividad registrada (el plugin la escribe en .harness/cache/actividad.json)».
+- `--json`: `{ generado, actividad_generada, agentes: [...], tareas: [...], arriendos, misiones: [{ id, gasto, usd_max, sin_presupuesto }] }`. Es el contrato de datos del dashboard.
+
+# Incremento 3.7 · Dashboard web local (D-0050)
+
+### `hz dashboard [--puerto 5280]`
+- Sirve **solo en `127.0.0.1`** y es de **solo lectura**. Rechaza con 403 toda petición cuyo `Host` no sea `127.0.0.1`, `localhost` o `[::1]` con ese puerto: así otra página no puede leer los datos por DNS rebinding.
+- `GET /`: la página con el design system del harness (glass oscuro, acento teal, claro y oscuro). Cada 2 s pide el fragmento y lo reemplaza; no usa librerías externas.
+- `GET /fragmento?ventana=5m|10m|30m` (10m por defecto): HTML calculado en Go con:
+  - cabecera: proyecto, nivel, modo, misiones con su presupuesto, tareas TDD y arriendos;
+  - **árbol + carriles**: una fila por agente en orden de árbol (vivos primero), con su nombre sangrado y, a la derecha, un carril SVG de la ventana (marca por tool call, ✕ por error, inicio y fin del agente, hueco = sin actividad) y su resumen (tools, errores, hace cuánto);
+  - sin actividad: un estado vacío que explica de dónde salen los datos.
+- `GET /api/panel`: el mismo JSON de `hz panel --json` más `eventos`.
+- Lee el motor y `actividad.json` en cada petición; reutiliza una sola conexión al motor (RG-1).

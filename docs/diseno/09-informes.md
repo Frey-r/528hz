@@ -22,11 +22,8 @@ Publica un **Artifact privado y versionado**: la misma URL se actualiza en cada 
 | 4 | Qué cambió en cada milestone | Una línea por milestone, con link a su decisión |
 | 5 | Esfuerzo y costo | Rondas, USD y tiempo por milestone (barras) |
 
-### Contenido C-level (modo Génesis)
-- Avance de hitos contra el contrato: criterios en verde sobre el total.
-- Funcionalidades entregadas por célula.
-- Salud de las RD (red-team en verde).
-- Costo.
+### Modo Génesis: sin informe (D-0045)
+El informe C-level es de **Mejora continua**: mide la evolución de verticales por rondas. En Génesis no hay verticales que medir; el avance se sigue con `hz estado`, el tablero y el contrato de cierre (`hz mision cerrar`).
 
 ### Versión técnica (`--tecnico`)
 Agrega:
@@ -43,4 +40,4 @@ Una PushNotification breve por milestone, con el link al informe.
 ## Estado de implementación (3.5, D-0044)
 - `hz informe <m> --json` es el contrato de datos; `hz informe <m> --html <archivo>` genera la página autocontenida (Go `html/template` + SVG calculado en Go, sin JS) que la skill `hz:informe` publica como Artifact en la misma URL.
 - La página cubre el contenido C-level de **Mejora**: KPIs, small multiples con milestones, meta y banda de ruido, línea base → último milestone, milestones, gasto y tabla.
-- **Pendiente:** el contenido de **Génesis** (criterios del contrato y funcionalidades por célula) y el flag `--tecnico` en el CLI. Mientras tanto, la skill arma la versión técnica con `hz compare --json`, `hz error lista`, `hz leccion lista` y `hz redteam estado`.
+- **Pendiente:** el flag `--tecnico` en el CLI. Mientras tanto, la skill arma la versión técnica con `hz compare --json`, `hz error lista`, `hz leccion lista` y `hz redteam estado`.

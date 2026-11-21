@@ -79,3 +79,40 @@ func TestMutarDetectaElTestDebilYRestauraElOriginal(t *testing.T) {
 		t.Fatal("el archivo original debe quedar restaurado exactamente")
 	}
 }
+
+func TestMuestraRepartidaEnTodoElArchivo(t *testing.T) {
+	var lineas []string
+	for range 40 {
+		lineas = append(lineas, "x := a + b")
+	}
+	sitios := Sitios(strings.Join(lineas, "\n")+"\n", ".go")
+	m := Muestra(sitios, 10)
+	if len(m) != 10 || m[0].Linea != 1 || m[len(m)-1].Linea < 37 {
+		t.Fatalf("la muestra debe cubrir el archivo de punta a punta, no solo el comienzo: %+v", m)
+	}
+	if got := Muestra(sitios[:5], 10); len(got) != 5 {
+		t.Fatalf("con menos sitios que el máximo van todos: %d", len(got))
+	}
+	if got := Muestra(sitios, 0); len(got) != 40 {
+		t.Fatalf("max 0 significa sin tope: %d", len(got))
+	}
+}
+
+func TestQueArchivosSonCodigoDeProduccion(t *testing.T) {
+	for ruta, esperado := range map[string]bool{
+		"internal/a/a.go": true, "src/app.ts": true, "web/comp.tsx": true, "pkg/mod.py": true,
+		"internal/a/a_test.go": false, "src/app.test.ts": false, "src/app.spec.js": false, "tests/test_mod.py": false,
+		"README.md": false, "config.yaml": false, "datos.json": false,
+	} {
+		if got := EsCodigoDeProduccion(ruta); got != esperado {
+			t.Errorf("EsCodigoDeProduccion(%q) = %v, se esperaba %v", ruta, got, esperado)
+		}
+	}
+}
+
+func TestTrueYFalseDentroDeIdentificadoresNoSonSitios(t *testing.T) {
+	sitios := Sitios("x_true := 1\nv2false := 2\ntrue_y := 3\nok := true\n", ".go")
+	if len(sitios) != 1 || sitios[0].Linea != 4 {
+		t.Fatalf("_ y los dígitos son parte del identificador: solo el true suelto de la línea 4 es un sitio: %+v", sitios)
+	}
+}

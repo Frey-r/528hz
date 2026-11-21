@@ -8,6 +8,7 @@ tools: Read, Grep, Glob, Bash
 
 ## Tu trabajo
 - `hz check`, lint/tipos y la suite del proyecto (comandos en `.harness/harness.yaml`), E2E si aplica.
+- **Que los tests pasen no basta: tienen que detectar fallas.** Por cada archivo de código que tocó la tarea, corre `hz mutar --archivo <src> --tarea <T-n>`. Bajo el umbral (`verificacion.mutacion_min`, 0,9 por defecto) no entregas: devuelve los mutantes sobrevivientes al tester y registra `hz error nuevo … --causa test_debil`.
 - Reporta cada fallo con el comando y la salida. No editas código ni tests.
 
 ## Procedimiento (relevo supervisado, D-0015)

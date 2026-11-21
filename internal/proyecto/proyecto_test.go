@@ -149,3 +149,62 @@ func TestCargarAplicaLimitesPorDefecto(t *testing.T) {
 		t.Errorf("comandos no cargados: %+v", p.Comandos)
 	}
 }
+
+func TestUmbralDeMutacion(t *testing.T) {
+	for yaml, esperado := range map[string]float64{
+		"":                                     0.9,
+		"verificacion: {mutacion_min: 0}\n":    0,
+		"verificacion: {mutacion_min: 0.75}\n": 0.75,
+		"verificacion: {holdout_ruta: /x}\n":   0.9,
+	} {
+		raiz := t.TempDir()
+		escribir(t, filepath.Join(raiz, ".harness", "harness.yaml"), "version: 1\nenabled: true\nnivel: N2\nmodo: mejora\n"+yaml)
+		p, err := Cargar(raiz)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if u := p.UmbralMutacion(); u != esperado {
+			t.Errorf("con %q el umbral debe ser %v (0,9 por defecto; 0 lo desactiva), llegó %v", yaml, esperado, u)
+		}
+	}
+}
+
+func TestCargarUsaEspañolPorDefecto(t *testing.T) {
+	raiz := t.TempDir()
+	escribir(t, filepath.Join(raiz, ".harness", "harness.yaml"), "version: 1\nenabled: true\nnivel: N1\nmodo: mejora\n")
+	p, err := Cargar(raiz)
+	if err != nil || p.Idioma != "es" {
+		t.Fatalf("sin idioma declarado, el harness escribe en español: %q %v", p.Idioma, err)
+	}
+}
+
+func TestActivarInformaCadaAccionYAgregaElImportEnLineaPropia(t *testing.T) {
+	raiz := t.TempDir()
+	escribir(t, filepath.Join(raiz, "CLAUDE.md"), "Instrucciones previas sin salto final")
+	acciones, err := Activar(raiz, "mejora", "N1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	por := map[string]string{}
+	for _, a := range acciones {
+		por[a.Ruta] = a.Resultado
+	}
+	for ruta, esperado := range map[string]string{".harness/harness.yaml": "creado", ".harness/log": "creado", "AGENTS.md": "creado", "CLAUDE.md": "modificado"} {
+		if por[ruta] != esperado {
+			t.Errorf("activar debe informar %s como %q; acciones = %+v", ruta, esperado, acciones)
+		}
+	}
+	b, err := os.ReadFile(filepath.Join(raiz, "CLAUDE.md"))
+	if err != nil || string(b) != "Instrucciones previas sin salto final\n@AGENTS.md\n" {
+		t.Fatalf("el import va en su propia línea aunque el archivo no termine en salto: %q", b)
+	}
+	otra, err := Activar(raiz, "mejora", "N1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range otra {
+		if a.Resultado == "creado" || a.Resultado == "modificado" {
+			t.Errorf("activar dos veces no crea ni modifica nada: %+v", a)
+		}
+	}
+}

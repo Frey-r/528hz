@@ -31,6 +31,10 @@ type Perfil struct {
 	Idioma   string            `yaml:"idioma"`
 	Comandos map[string]string `yaml:"comandos"`
 	Limites  Limites           `yaml:"limites"`
+	// Verificacion: solo lo que usa el CLI (schema/harness.schema.json → verificacion).
+	Verificacion struct {
+		MutacionMin *float64 `yaml:"mutacion_min"`
+	} `yaml:"verificacion"`
 }
 
 // Accion describe un efecto de `hz activar` sobre un archivo.
@@ -277,4 +281,16 @@ Declarados en `+"`.harness/harness.yaml → comandos`"+` (test, lint, build, run
 ## Cómo consultar
 `+"`hz estado`"+` para retomar · `+"`hz decision buscar <tema>`"+` · `+"`hz check`"+`
 `, nombre)
+}
+
+// umbralMutacionPorDefecto: con ≤20 mutantes admite hasta 2 sobrevivientes (algunos son equivalentes).
+const umbralMutacionPorDefecto = 0.9
+
+// UmbralMutacion es la detección mínima de hz mutar para que el verificador entregue una tarea (D-0046).
+// 0 desactiva la exigencia.
+func (p *Perfil) UmbralMutacion() float64 {
+	if p.Verificacion.MutacionMin == nil {
+		return umbralMutacionPorDefecto
+	}
+	return *p.Verificacion.MutacionMin
 }

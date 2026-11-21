@@ -16,7 +16,7 @@ const HOOKS = JSON.stringify({
   secretos: ['.env'],
 })
 
-type Opciones = { hayHarness?: boolean; salida?: string; hooks?: string }
+type Opciones = { hayHarness?: boolean; salida?: string; hooks?: string; estados?: string[] }
 
 // motor simula lo que está bajo el plugin: sistema de archivos, sesión y la herramienta misma.
 function motor(on: any, o: Opciones = {}) {
@@ -30,7 +30,10 @@ function motor(on: any, o: Opciones = {}) {
     if (p.endsWith('/.env')) return { value: 'TOKEN=canario-SECRETO-4471\n' }
     return { value: '' }
   })
-  on('ui.status', () => ({ value: undefined }))
+  on('ui.status', (_: unknown, e: any) => {
+    o.estados?.push(String(e?.text ?? e ?? ''))
+    return { value: undefined }
+  })
   on('tool.call', () => ({ result: {}, text: o.salida ?? 'salida normal' }))
   on('session.start', (_: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
 }
@@ -134,4 +137,81 @@ test('frena el lanzamiento de subagentes cuando una misión activa se quedó sin
   const r: any = await $.agent.spawn({ tool_use_id: 't1', prompt: 'x', description: 'implementador T-1', subagentType: 'general-purpose' } as any)
   expect(r.deny).toContain('presupuesto')
   expect(lanzado).toBe(false)
+})
+
+// ───────────── Observabilidad (contratos/plugin.md §7) ─────────────
+
+const PANEL = {
+  plugin: 'hz',
+  component: 'Pane',
+  requestId: 'hz-panel',
+  props: { title: 'hz', isFocused: false, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 30 }, view: {} },
+} as const
+
+function observar(on: any, o: Opciones = {}) {
+  const estados: string[] = []
+  motor(on, { ...o, estados })
+  const snapshots: string[] = []
+  on('fs.write', (_: unknown, e: { path: string; text: string }) => {
+    if (e.path.includes('actividad.json')) snapshots.push(e.text)
+    return { value: undefined }
+  })
+  const abiertos: string[] = []
+  on('command.register', () => ({ value: { command: 'hz-panel' } }))
+  on('ui.open', (_: unknown, e: { id: string }) => {
+    abiertos.push(e.id)
+    return { value: { isPlaced: true } }
+  })
+  on('agent.list', () => ({ value: [] }))
+  on('agent.spawn', () => ({ model: 'sonnet', agentId: 'ag7' }))
+  on('agent.report', (_: unknown, e: { text: string }) => ({ text: e.text }))
+  return { snapshots, estados, abiertos }
+}
+
+test('lanzar y terminar un subagente queda en el snapshot de actividad', async ($, on) => {
+  const { snapshots } = observar(on)
+  await $.session.start({ cwd: RAIZ, surface: 'terminal', isInteractive: true })
+  await $.agent.spawn({ tool_use_id: 't1', prompt: 'x', description: 'implementador T-1', subagentType: 'hz:implementador' } as any)
+  const lanzado = JSON.parse(snapshots.at(-1) ?? '{}')
+  expect(lanzado.version).toBe(1)
+  expect(lanzado.agentes.find((a: any) => a.id === 'ag7')).toMatchObject({ rol: 'implementador', tarea: 'T-1', estado: 'lanzado' })
+  await $.agent.report({ agentId: 'ag7', subagentType: 'hz:implementador', status: 'completed', text: 'listo' } as any)
+  const terminado = JSON.parse(snapshots.at(-1) ?? '{}')
+  expect(terminado.agentes.find((a: any) => a.id === 'ag7').estado).toBe('terminado')
+})
+
+test('la línea de estado cuenta los agentes vivos', async ($, on) => {
+  const { estados } = observar(on)
+  await $.session.start({ cwd: RAIZ, surface: 'terminal', isInteractive: true })
+  await $.agent.spawn({ tool_use_id: 't1', prompt: 'x', description: 'tester T-1', subagentType: 'hz:tester' } as any)
+  expect(estados.at(-1)).toContain('1 agente')
+})
+
+test('el pane hz-panel muestra el árbol de agentes con su rol y su tarea', async ($, on) => {
+  observar(on)
+  await $.session.start({ cwd: RAIZ, surface: 'terminal', isInteractive: true })
+  await $.agent.spawn({ tool_use_id: 't1', prompt: 'x', description: 'implementador T-1', subagentType: 'hz:implementador' } as any)
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...PANEL, surface })
+    expect((await ui.find({ type: 'Text', text: /implementador/ }))?.text).toContain('T-1')
+    expect(await ui.find({ type: 'Text', text: /T-1 ROJO/ })).toBeTruthy()
+    await ui.unmount()
+  }
+})
+
+test('el comando /hz-panel abre el pane', async ($, on) => {
+  const { abiertos } = observar(on)
+  await $.session.start({ cwd: RAIZ, surface: 'terminal', isInteractive: true })
+  const r: any = await $.command.run({ command: 'hz-panel', args: '' } as any)
+  expect(abiertos).toContain('hz-panel')
+  expect(String(r?.text ?? '')).toContain('hz-panel')
+})
+
+test('el snapshot trae los eventos de cada agente para los carriles del dashboard', async ($, on) => {
+  const { snapshots } = observar(on)
+  await $.session.start({ cwd: RAIZ, surface: 'terminal', isInteractive: true })
+  await $.agent.spawn({ tool_use_id: 't1', prompt: 'x', description: 'tester T-1', subagentType: 'hz:tester' } as any)
+  await $.agent.report({ agentId: 'ag7', subagentType: 'hz:tester', status: 'completed', text: 'listo' } as any)
+  const snap = JSON.parse(snapshots.at(-1) ?? '{}')
+  expect(snap.eventos.ag7.map((e: number[]) => e[1])).toEqual([2, 3])
 })

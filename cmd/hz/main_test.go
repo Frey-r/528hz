@@ -4,10 +4,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func hz(t *testing.T, args ...string) (int, string, string) {
@@ -287,5 +291,126 @@ func TestFlujoActivarDecidirBuscarVerEstadoCheck(t *testing.T) {
 	}
 	if code, out, _ := hz(t, "version"); code != 0 || !strings.HasPrefix(out, "hz ") {
 		t.Fatalf("version: %d %q", code, out)
+	}
+}
+
+func TestPanelJuntaActividadYMotor(t *testing.T) {
+	raiz := t.TempDir()
+	if code, _, e := hz(t, "--raiz", raiz, "activar", "--nivel", "N2"); code != 0 {
+		t.Fatalf("activar: %s", e)
+	}
+	if code, out, _ := hz(t, "--raiz", raiz, "panel"); code != 0 || !strings.Contains(out, "sin actividad registrada") {
+		t.Fatalf("sin snapshot del plugin: código %d, salida %q", code, out)
+	}
+	if err := os.MkdirAll(filepath.Join(raiz, "contratos"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(raiz, "contratos", "x.md"), []byte("contrato\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, e := hz(t, "--raiz", raiz, "tdd", "contrato", "T-1", "--titulo", "parser", "--contrato", "contratos/x.md"); code != 0 {
+		t.Fatalf("contrato: %s", e)
+	}
+	ahora := time.Now().UnixMilli()
+	actividad := fmt.Sprintf(`{"version":1,"generado":"2026-11-21T10:00:00Z","agentes":[
+ {"id":"principal","rol":"director","descripcion":"","padre":"","tarea":"","estado":"activo","tools":12,"errores":0,"seguidos":0,"ultima":"Edit a.go","desde":%[1]d,"visto":%[1]d},
+ {"id":"L1","rol":"lider","descripcion":"lider pagos","padre":"principal","tarea":"","estado":"activo","tools":4,"errores":0,"seguidos":0,"ultima":"Agent","desde":%[1]d,"visto":%[1]d},
+ {"id":"r1","rol":"tester","descripcion":"tester T-1","padre":"L1","tarea":"T-1","estado":"terminado","tools":9,"errores":1,"seguidos":0,"ultima":"Bash go test","desde":%[1]d,"visto":%[1]d},
+ {"id":"r2","rol":"implementador","descripcion":"implementador T-1","padre":"L1","tarea":"T-1","estado":"activo","tools":3,"errores":3,"seguidos":3,"ultima":"Bash go test","desde":%[1]d,"visto":%[1]d}]}`, ahora)
+	if err := os.WriteFile(filepath.Join(raiz, ".harness", "cache", "actividad.json"), []byte(actividad), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, out, e := hz(t, "--raiz", raiz, "panel")
+	if code != 0 {
+		t.Fatalf("panel: %d %s", code, e)
+	}
+	lineas := strings.Split(strings.TrimSpace(out), "\n")
+	indice := func(s string) int {
+		for i, l := range lineas {
+			if strings.Contains(l, s) {
+				return i
+			}
+		}
+		return -1
+	}
+	if indice("T-1 CONTRATO") < 0 || indice("director") < 0 || indice("3 seguidos") < 0 || len(lineas) > 40 {
+		t.Fatalf("el panel muestra tareas, el árbol y los errores seguidos en ≤40 líneas:\n%s", out)
+	}
+	if !(indice("director") < indice("lider") && indice("lider") < indice("implementador") && indice("implementador") < indice("tester")) {
+		t.Fatalf("árbol por supervisor con los vivos primero (implementador vivo antes que tester terminado):\n%s", out)
+	}
+	if !strings.HasPrefix(lineas[indice("implementador")], "    ") {
+		t.Fatalf("un rol de un líder va dos niveles adentro:\n%s", out)
+	}
+	code, out, _ = hz(t, "--raiz", raiz, "panel", "--json")
+	var p struct {
+		Agentes  []map[string]any `json:"agentes"`
+		Tareas   []map[string]any `json:"tareas"`
+		Misiones []map[string]any `json:"misiones"`
+	}
+	if code != 0 || json.Unmarshal([]byte(out), &p) != nil || len(p.Agentes) != 4 || len(p.Tareas) != 1 || p.Misiones == nil {
+		t.Fatalf("panel --json es el contrato del dashboard: %d %s", code, out)
+	}
+}
+
+func TestDashboardValidaPuertoYPuertoOcupado(t *testing.T) {
+	raiz := t.TempDir()
+	if code, _, e := hz(t, "--raiz", raiz, "activar", "--nivel", "N3"); code != 0 {
+		t.Fatalf("activar: %s", e)
+	}
+	for _, args := range [][]string{{"--puerto", "0"}, {"--puerto", "70000"}, {"--puerto", "abc"}, {"extra"}} {
+		if code, _, _ := hz(t, append([]string{"--raiz", raiz, "dashboard"}, args...)...); code != 2 {
+			t.Errorf("hz dashboard %v debe ser uso inválido, llegó %d", args, code)
+		}
+	}
+	ocupado, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ocupado.Close()
+	puerto := strconv.Itoa(ocupado.Addr().(*net.TCPAddr).Port)
+	if code, _, e := hz(t, "--raiz", raiz, "dashboard", "--puerto", puerto); code != 4 || !strings.Contains(e, "no se pudo escuchar") {
+		t.Fatalf("con el puerto ocupado, hz dashboard falla sin quedarse colgado: %d %q", code, e)
+	}
+	if code, _, e := hz(t, "--raiz", raiz, "mision", "nueva", "m1", "--objetivo", "x", "--usd-max", "5"); code != 0 {
+		t.Fatalf("mision: %s", e)
+	}
+	if code, _, e := hz(t, "--raiz", raiz, "mision", "gasto", "m1", "--usd", "6"); code != 0 {
+		t.Fatalf("gasto: %s", e)
+	}
+	if code, out, _ := hz(t, "--raiz", raiz, "panel"); code != 0 || !strings.Contains(out, "de US$5.00 (120%)") || !strings.Contains(out, "sin presupuesto") {
+		t.Fatalf("el panel muestra la misión con su tope y si se quedó sin presupuesto:\n%s", out)
+	}
+}
+
+func TestDashboardSirveYSeApagaOrdenadamente(t *testing.T) {
+	raiz := t.TempDir()
+	if code, _, e := hz(t, "--raiz", raiz, "activar", "--nivel", "N2"); code != 0 {
+		t.Fatalf("activar: %s", e)
+	}
+	libre, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	puerto := strconv.Itoa(libre.Addr().(*net.TCPAddr).Port)
+	libre.Close()
+	estado := make(chan int, 1)
+	alEscuchar = func(dir string, apagar func()) {
+		defer apagar()
+		r, err := http.Get("http://" + dir + "/api/panel")
+		if err != nil {
+			estado <- -1
+			return
+		}
+		r.Body.Close()
+		estado <- r.StatusCode
+	}
+	defer func() { alEscuchar = nil }()
+	code, out, e := hz(t, "--raiz", raiz, "dashboard", "--puerto", puerto)
+	if code != 0 || !strings.Contains(out, "detenido") {
+		t.Fatalf("al apagarse, hz dashboard sale con 0: %d %q %q", code, out, e)
+	}
+	if s := <-estado; s != http.StatusOK {
+		t.Fatalf("mientras corría, /api/panel respondió %d", s)
 	}
 }

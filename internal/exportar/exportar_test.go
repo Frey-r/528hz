@@ -189,3 +189,56 @@ func TestExportarMisionesActivasConPresupuesto(t *testing.T) {
 		t.Fatalf("m2 gastó 1 de 5: tiene presupuesto: %+v", x)
 	}
 }
+
+func TestRemediacionPorDefectoYResumenSinPerfil(t *testing.T) {
+	raiz := t.TempDir()
+	escribir(t, raiz, ".harness/reglas.yaml", "version: 1\nreglas:\n  - {id: RD-1, orden: \"No toques prod.\", por_que: \"x\", origen: genesis, desde: 2026-11-20, enforcement: [hook, ci], estado: vigente}\n")
+	m, err := motor.Abrir(raiz)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Cerrar()
+	h, err := Construir(m, raiz)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(h.ReglasDuras) != 1 || h.ReglasDuras[0].Remediacion != "Respeta RD-1: No toques prod." {
+		t.Fatalf("una RD sin remediación declarada recibe la de su orden: %+v", h.ReglasDuras)
+	}
+	if !strings.Contains(strings.Join(h.Resumen, " "), "modo sin perfil") {
+		t.Fatalf("sin harness.yaml el resumen lo dice: %v", h.Resumen)
+	}
+}
+
+func TestSecretosIgnoranCarpetasDeDependenciasSalvoLaRaiz(t *testing.T) {
+	raiz := filepath.Join(t.TempDir(), "vendor") // la raíz misma se llama como una carpeta que se salta
+	escribir(t, raiz, ".env", "A=1\n")
+	escribir(t, raiz, "node_modules/x/.env", "B=2\n")
+	escribir(t, raiz, "app/.env", "C=3\n")
+	got := archivosQueCoinciden(raiz, []string{"**/.env"})
+	if strings.Join(got, ",") != ".env,app/.env" {
+		t.Fatalf("se recorre la raíz aunque se llame vendor, y se saltan node_modules y similares: %v", got)
+	}
+}
+
+func TestCoincideConDobleAsterisco(t *testing.T) {
+	for _, c := range []struct {
+		patron, ruta string
+		ok           bool
+	}{
+		{"**/b.go", "a/x/b.go", true},
+		{"**/b.go", "b.go", true},
+		{"a/**", "a/x/y", true},
+		{"a/**/c.go", "a/c.go", true},
+		{"a/**/c.go", "a/x/y/c.go", true},
+		{"a/**/c.go", "b/x/c.go", false},
+		{"a/*.go", "a/x/b.go", false},
+		{"a/b", "a", false},
+		{"a", "a/b", false},
+		{"**", "cualquier/cosa", true},
+	} {
+		if got := Coincide(c.patron, c.ruta); got != c.ok {
+			t.Errorf("Coincide(%q, %q) = %v, se esperaba %v", c.patron, c.ruta, got, c.ok)
+		}
+	}
+}

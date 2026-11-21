@@ -428,3 +428,30 @@ func (m *Motor) EventosRedteam(regla string) ([]EventoRedteam, error) {
 	}
 	return out, filas.Err()
 }
+
+// MedicionVerificador es la última medición de un verificador.
+type MedicionVerificador struct {
+	ID        string  `json:"id"`
+	Deteccion float64 `json:"deteccion"`
+	Detalle   string  `json:"detalle"`
+}
+
+// MedicionesConPrefijo devuelve la última medición de cada verificador cuyo id empieza con el prefijo,
+// ordenadas por id (p. ej. "mutacion:T-1:" → la meta-eval de cada archivo de la tarea).
+func (m *Motor) MedicionesConPrefijo(prefijo string) ([]MedicionVerificador, error) {
+	filas, err := m.db.Query(`SELECT id, deteccion, COALESCE(comando, '') FROM verificadores
+		WHERE substr(id, 1, length(?)) = ? ORDER BY id`, prefijo, prefijo)
+	if err != nil {
+		return nil, err
+	}
+	defer filas.Close()
+	out := []MedicionVerificador{}
+	for filas.Next() {
+		var x MedicionVerificador
+		if err := filas.Scan(&x.ID, &x.Deteccion, &x.Detalle); err != nil {
+			return nil, err
+		}
+		out = append(out, x)
+	}
+	return out, filas.Err()
+}

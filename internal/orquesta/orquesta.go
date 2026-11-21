@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"hz528/internal/check"
 	"hz528/internal/motor"
+	"hz528/internal/mutar"
 	"hz528/internal/proyecto"
 	"hz528/internal/tdd"
 )
@@ -63,9 +65,9 @@ var roles = map[string]rol{
 		[]string{"hz tdd verde %[1]s", "hz tdd refactor %[1]s", "hz regla ver RG-1", "hz decision nueva … (si eliges entre alternativas)"},
 		"Tocar tests bloqueados ni archivos fuera de tus arriendos. No verificas ni evalúas: eso lo hacen otros roles.",
 		"la tarea está en VERDE o REFACTOR y los tests bloqueados siguen intactos"},
-	"verificador": {"Correr la escalera de verificación V0–V3 y los sensores RG-1, dejar la evidencia y registrar errores.",
-		[]string{"hz check", "hz tdd estado %[1]s", "comandos del proyecto en .harness/harness.yaml"},
-		"Editar código o tests.", "la tarea tiene evidencia ejecutada en verde y `hz check` pasa"},
+	"verificador": {"Correr la escalera de verificación V0–V3 y los sensores RG-1, medir con mutation testing que los tests detecten fallas (no solo que pasen), dejar la evidencia y registrar errores.",
+		[]string{"hz check", "hz tdd estado %[1]s", "hz mutar --archivo <src> --tarea %[1]s (por cada archivo de código que tocó la tarea)", "comandos del proyecto en .harness/harness.yaml"},
+		"Editar código o tests.", "la tarea tiene evidencia ejecutada en verde, `hz check` pasa y cada archivo de código tocado supera el umbral de `hz mutar`"},
 	"evaluador": {"Evaluar con contexto fresco y solo lectura: contratos, RG-1, reglas duras y holdout.",
 		[]string{"hz tdd estado %[1]s", "hz regla ver RG-1"}, "Editar nada (solo lectura).", "registraste tu tarjeta de veredicto"},
 	"registrador": {"Registrar decisiones, avance y errores; proponer las decisiones que nadie registró (D-0035).",
@@ -197,7 +199,10 @@ func Salida(m *motor.Motor, raiz, nombre, tarea string) error {
 		if !check.TodoOK(check.Ejecutar(raiz, perfil)) {
 			return noSale("`hz check` falla: corrígelo antes de entregar")
 		}
-		return testsIntactos(raiz, t)
+		if err := testsIntactos(raiz, t); err != nil {
+			return err
+		}
+		return mutacionSuficiente(m, perfil.UmbralMutacion(), t)
 	default:
 		tj, err := m.UltimaTarjeta(t.ID, nombre)
 		if err != nil || tj.Estado != "listo" {
@@ -205,6 +210,56 @@ func Salida(m *motor.Motor, raiz, nombre, tarea string) error {
 		}
 		return nil
 	}
+}
+
+// mutacionSuficiente es la meta-eval de los tests de la tarea (D-0046): que pasen no basta, tienen que detectar
+// fallas sembradas en el código que la tarea tocó.
+func mutacionSuficiente(m *motor.Motor, umbral float64, t motor.Tarea) error {
+	if umbral <= 0 {
+		return nil
+	}
+	prefijo := "mutacion:" + t.ID + ":"
+	meds, err := m.MedicionesConPrefijo(prefijo)
+	if err != nil {
+		return err
+	}
+	if len(meds) == 0 {
+		return noSale("falta la meta-eval de los tests de %s: corre `hz mutar --archivo <src> --tarea %s` por cada archivo de código que tocó (detección mínima %.0f%%)",
+			t.ID, t.ID, umbral*100)
+	}
+	medidos := make(map[string]bool, len(meds))
+	var bajos []string
+	for _, x := range meds {
+		archivo := strings.TrimPrefix(x.ID, prefijo)
+		medidos[path.Clean(archivo)] = true
+		if x.Deteccion < umbral-1e-9 {
+			bajos = append(bajos, fmt.Sprintf("%s %.0f%%", archivo, x.Deteccion*100))
+		}
+	}
+	if len(bajos) > 0 {
+		return noSale("la suite de %s no detecta suficientes fallas sembradas (mínimo %.0f%%): %s. Refuerza los tests con los sobrevivientes de `hz mutar` y registra el error test_debil",
+			t.ID, umbral*100, strings.Join(bajos, ", "))
+	}
+	arriendos, err := m.Arriendos()
+	if err != nil {
+		return err
+	}
+	bloqueados := make(map[string]bool, len(t.TestsBloqueados))
+	for _, tb := range t.TestsBloqueados {
+		bloqueados[path.Clean(filepath.ToSlash(tb.Ruta))] = true
+	}
+	var faltan []string
+	for _, a := range arriendos {
+		ruta := path.Clean(filepath.ToSlash(a.Ruta))
+		if a.Tarea == t.ID && !bloqueados[ruta] && !medidos[ruta] && mutar.EsCodigoDeProduccion(ruta) {
+			faltan = append(faltan, ruta)
+		}
+	}
+	if len(faltan) > 0 {
+		return noSale("archivos de código arrendados por %s sin meta-eval: %s (`hz mutar --archivo <src> --tarea %s`)",
+			t.ID, strings.Join(faltan, ", "), t.ID)
+	}
+	return nil
 }
 
 func testsIntactos(raiz string, t motor.Tarea) error {

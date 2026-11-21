@@ -77,7 +77,7 @@ func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 var conProyecto = map[string]bool{"reindex": true, "decision": true, "check": true, "estado": true, "tdd": true, "exportar": true,
 	"tablero": true, "arriendo": true, "tarjeta": true, "contexto": true, "salida": true, "equipo": true,
 	"error": true, "leccion": true, "eval": true, "mutar": true, "redteam": true,
-	"mision": true, "ronda": true, "compare": true, "ruido": true, "milestone": true, "informe": true}
+	"mision": true, "ronda": true, "compare": true, "ruido": true, "milestone": true, "informe": true, "panel": true, "dashboard": true}
 
 func run(args []string, stdout, stderr io.Writer) int {
 	g, args, err := separarGlobales(args)
@@ -173,6 +173,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return ctx.milestone(resto)
 	case "informe":
 		return ctx.informeCmd(resto)
+	case "panel":
+		return ctx.panel(resto)
+	case "dashboard":
+		return ctx.dashboard(resto)
 	default: // tdd
 		return ctx.tdd(resto)
 	}
@@ -356,6 +360,8 @@ func uso(w io.Writer) {
   hz ruido <mision> R-a R-b              piso de ruido (dos mediciones del mismo código)
   hz milestone proponer|marcar|lista …   el harness propone, el humano marca
   hz informe <mision> [--json] [--html f]   informe C-level (datos o página para Artifact)
+  hz panel [--json]                      agentes en vivo (lo que vio el plugin) + tareas, arriendos y misiones
+  hz dashboard [--puerto 5280]           panel web local (árbol + carriles), solo 127.0.0.1
   hz regla ver RG-n                      texto de una regla general
   hz reindex                             reconstruye el índice desde los logs
   hz exportar                            regenera .harness/cache/hooks.json para el plugin

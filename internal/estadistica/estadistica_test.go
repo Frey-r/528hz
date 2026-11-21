@@ -109,3 +109,13 @@ func TestItemsSinValorSeIgnoran(t *testing.T) {
 		t.Fatalf("ítems sin valor no se parean: %+v", c)
 	}
 }
+
+func TestProponerIgnoraMetricasSinBase(t *testing.T) {
+	metricas := []Metrica{{ID: "nueva", Direccion: "sube", Piso: 0.01}}
+	if p := Proponer(map[string]float64{}, map[string]float64{"nueva": 0.9}, metricas, 2); p.Propone {
+		t.Fatalf("una métrica sin valor en la base no tiene salto que medir: %+v", p)
+	}
+	if p := Proponer(map[string]float64{"nueva": 0.1}, map[string]float64{}, metricas, 2); p.Propone {
+		t.Fatalf("ni una métrica sin valor en la ronda: %+v", p)
+	}
+}

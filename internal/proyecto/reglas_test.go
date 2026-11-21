@@ -122,9 +122,14 @@ func TestActivarN2CreaReglasYFusionaPermisosSinPisar(t *testing.T) {
 		t.Error("se perdieron las reglas allow existentes")
 	}
 	d := denies(s)
-	for _, regla := range []string{"Read(./secreto)", "Edit(./.harness/reglas.yaml)", "Write(./.harness/log/**)", "Edit(./.claude/settings.json)", "Edit(./.githooks/**)"} {
+	for _, regla := range []string{"Read(./secreto)", "Edit(./.harness/reglas.yaml)", "Edit(./.harness/log/**)", "Edit(./.claude/settings.json)", "Edit(./.githooks/**)"} {
 		if contar(d, regla) != 1 {
 			t.Errorf("deny %q debe aparecer exactamente una vez; deny = %v", regla, d)
+		}
+	}
+	for _, r := range d {
+		if strings.HasPrefix(r, "Write(") {
+			t.Errorf("Claude Code no aplica Write(ruta) en las verificaciones de archivos; Edit(ruta) ya las cubre (D-0047): %s", r)
 		}
 	}
 	for _, r := range d {
@@ -162,5 +167,31 @@ func TestActivarSinNivelExplicitoNoDegrada(t *testing.T) {
 	}
 	if p, _ := Cargar(raiz); p.Nivel != "N2" {
 		t.Fatalf("activar sin --nivel no debe bajar el nivel: quedó %s", p.Nivel)
+	}
+}
+
+func TestActivarRetiraLasReglasWriteQueGeneroElHarness(t *testing.T) {
+	raiz := t.TempDir()
+	escribir(t, filepath.Join(raiz, ".claude", "settings.json"),
+		`{"permissions":{"deny":["Edit(./.harness/log/**)","Write(./.harness/log/**)","Write(./.githooks/**)","Write(./otra/cosa)"]}}`)
+	acciones, err := Activar(raiz, "mejora", "N2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := denies(leerSettings(t, raiz))
+	for _, vieja := range []string{"Write(./.harness/log/**)", "Write(./.githooks/**)"} {
+		if contar(d, vieja) != 0 {
+			t.Errorf("la regla %s es de una versión anterior del harness y su ruta ya tiene Edit: se retira; deny = %v", vieja, d)
+		}
+	}
+	if contar(d, "Write(./otra/cosa)") != 1 {
+		t.Errorf("una regla Write ajena al harness (sin su Edit) nunca se borra; deny = %v", d)
+	}
+	modificado := false
+	for _, a := range acciones {
+		modificado = modificado || (a.Ruta == ".claude/settings.json" && a.Resultado == "modificado")
+	}
+	if !modificado {
+		t.Errorf("settings.json cambió y la acción debe decirlo: %+v", acciones)
 	}
 }

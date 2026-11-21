@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"hz528/internal/motor"
 	"hz528/internal/tdd"
@@ -129,8 +130,11 @@ func TestSalidaDeterministaPorRol(t *testing.T) {
 	if err := Salida(m, raiz, "implementador", "T-1"); err != nil {
 		t.Fatalf("implementador con VERDE y tests intactos debe salir: %v", err)
 	}
+	if err := m.RegistrarMedicion("mutacion:T-1:app/x.go", 1, "20 de 20"); err != nil {
+		t.Fatal(err)
+	}
 	if err := Salida(m, raiz, "verificador", "T-1"); err != nil {
-		t.Fatalf("verificador con evidencia y check en verde debe salir: %v", err)
+		t.Fatalf("verificador con evidencia, check en verde y meta-eval de los tests debe salir: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(raiz, "tests", "x_test.txt"), []byte("assert True\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -158,5 +162,93 @@ func TestPaqueteSinErroresDeFormato(t *testing.T) {
 		if strings.Contains(p, "%!") {
 			t.Errorf("el paquete de %s tiene un error de formato:\n%s", rol, p)
 		}
+	}
+}
+
+func TestSalidaDelVerificadorExigeMutacion(t *testing.T) {
+	m, raiz := armarProyecto(t)
+	q := tdd.Maquina{M: m, Raiz: raiz}
+	if err := q.Rojo("T-1", []string{"tests/x_test.txt"}, "echo 'AssertionError'; exit 1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Verde("T-1", "exit 0"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Salida(m, raiz, "verificador", "T-1"); err == nil || !strings.Contains(err.Error(), "hz mutar") {
+		t.Fatalf("sin meta-eval de los tests el verificador no entrega: %v", err)
+	}
+	if err := m.RegistrarMedicion("mutacion:T-1:app/x.go", 0.75, "15 de 20"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Salida(m, raiz, "verificador", "T-1"); err == nil || !strings.Contains(err.Error(), "app/x.go") || !strings.Contains(err.Error(), "75%") {
+		t.Fatalf("una suite que detecta 75%% de las fallas sembradas no alcanza el 90%%: %v", err)
+	}
+	if err := m.RegistrarMedicion("mutacion:T-1:app/x.go", 0.95, "19 de 20"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Salida(m, raiz, "verificador", "T-1"); err != nil {
+		t.Fatalf("con la suite reforzada el verificador entrega: %v", err)
+	}
+	if err := m.TomarArriendo([]string{"app/y.go", "tests/x_test.txt", "README.md"}, "ag1", "T-1", time.Now().Add(30*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := Salida(m, raiz, "verificador", "T-1"); err == nil || !strings.Contains(err.Error(), "app/y.go") || strings.Contains(err.Error(), "README.md") {
+		t.Fatalf("todo archivo de código arrendado por la tarea necesita su medición (tests y docs no): %v", err)
+	}
+	if err := m.RegistrarMedicion("mutacion:T-1:app/y.go", 1, "20 de 20"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Salida(m, raiz, "verificador", "T-1"); err != nil {
+		t.Fatalf("con todos los archivos medidos, entrega: %v", err)
+	}
+	m2, raiz2 := armarProyecto(t)
+	if err := os.WriteFile(filepath.Join(raiz2, ".harness", "harness.yaml"), []byte("version: 1\nenabled: true\nnivel: N2\nmodo: genesis\nverificacion: {mutacion_min: 0}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	q2 := tdd.Maquina{M: m2, Raiz: raiz2}
+	if err := q2.Rojo("T-1", []string{"tests/x_test.txt"}, "echo 'AssertionError'; exit 1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := q2.Verde("T-1", "exit 0"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Salida(m2, raiz2, "verificador", "T-1"); err != nil {
+		t.Fatalf("con mutacion_min 0 la exigencia queda desactivada: %v", err)
+	}
+}
+
+func TestEstadosPosterioresAlVerdeNoBloquean(t *testing.T) {
+	for _, estado := range []string{"verde", "refactor", "verificada", "cerrada"} {
+		m, _ := armarProyecto(t)
+		if err := m.RegistrarTarea("tdd.verde", motor.Tarea{ID: "T-1", Titulo: "x", Estado: estado}); err != nil {
+			t.Fatal(err)
+		}
+		if err := m.RegistrarTarea("tdd.contrato", motor.Tarea{ID: "T-2", Titulo: "y", Estado: "contrato", BloqueadaPor: []string{"T-1"}}); err != nil {
+			t.Fatal(err)
+		}
+		tareas, err := m.Tareas()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if listas := FrenteListo(tareas); !strings.Contains(ids(listas), "T-2") {
+			t.Fatalf("una dependencia en %s ya no bloquea: frente = %s", estado, ids(listas))
+		}
+	}
+}
+
+func TestSalidaSinTestsBloqueadosNiEvidencia(t *testing.T) {
+	m, raiz := armarProyecto(t)
+	if err := m.RegistrarTarea("tdd.rojo", motor.Tarea{ID: "T-2", Titulo: "x", Estado: "rojo"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Salida(m, raiz, "tester", "T-2"); err == nil || !strings.Contains(err.Error(), "tests bloqueados") {
+		t.Fatalf("en ROJO pero sin tests bloqueados el tester no sale: %v", err)
+	}
+	if err := m.RegistrarTarea("tdd.verde", motor.Tarea{ID: "T-3", Titulo: "y", Estado: "verde",
+		Evidencia: []motor.Evidencia{{Cmd: "go test ./...", Resultado: "exit 1"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Salida(m, raiz, "verificador", "T-3"); err == nil || !strings.Contains(err.Error(), "evidencia") {
+		t.Fatalf("sin evidencia ejecutada en verde el verificador no sale: %v", err)
 	}
 }

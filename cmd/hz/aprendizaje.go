@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -203,12 +204,28 @@ func (c contexto) eval(args []string) int {
 func (c contexto) mutar(args []string) int {
 	fs := c.flagSet("mutar")
 	archivo := fs.String("archivo", "", "archivo fuente a mutar")
+	tarea := fs.String("tarea", "", "tarea T-n a la que se asocia la medición (la exige hz salida --rol verificador)")
 	cmd := fs.String("cmd", c.perfil.Comandos["test"], "comando de la suite")
-	max := fs.Int("max", 20, "máximo de mutantes")
+	max := fs.Int("max", 20, "máximo de mutantes (muestra repartida en todo el archivo)")
 	limite := fs.Duration("timeout", 2*time.Minute, "tiempo límite por corrida")
 	if _, err := parsearIntercalado(fs, args); err != nil || *archivo == "" {
-		fmt.Fprintln(c.err, "uso: hz mutar --archivo <src> [--cmd \"…\"] [--max 20] [--timeout 2m]")
+		fmt.Fprintln(c.err, "uso: hz mutar --archivo <src> [--tarea T-n] [--cmd \"…\"] [--max 20] [--timeout 2m]")
 		return usoInvalido
+	}
+	rel := *archivo
+	if filepath.IsAbs(rel) {
+		if r, err := filepath.Rel(c.raiz, rel); err == nil {
+			rel = r
+		}
+	}
+	rel = path.Clean(filepath.ToSlash(rel))
+	idTarea := ""
+	if *tarea != "" {
+		t, err := c.m.Tarea(*tarea)
+		if err != nil {
+			return c.codigo(err)
+		}
+		idTarea = t.ID // el mismo id con que hz salida busca la medición
 	}
 	r, err := mutar.Ejecutar(c.raiz, *archivo, *cmd, *max, *limite)
 	if err != nil {
@@ -218,9 +235,18 @@ func (c contexto) mutar(args []string) int {
 	for _, s := range r.Sobrevivientes {
 		sobrev = append(sobrev, fmt.Sprintf("%d:%d %q→%q", s.Linea, s.Col, strings.TrimSpace(s.Original), strings.TrimSpace(s.Mutante)))
 	}
-	detalle := fmt.Sprintf("%d de %d mutantes detectados en %s", r.Detectados, r.Total, filepath.ToSlash(*archivo))
-	if err := c.m.RegistrarMedicion("mutacion:"+filepath.ToSlash(*archivo), r.Tasa, detalle); err != nil {
-		return c.codigo(err)
+	detalle := fmt.Sprintf("%d de %d mutantes detectados en %s", r.Detectados, r.Total, rel)
+	if r.Total == 0 {
+		detalle = "sin sitios mutables en " + rel
+	}
+	ids := []string{"mutacion:" + rel}
+	if idTarea != "" {
+		ids = append(ids, "mutacion:"+idTarea+":"+rel)
+	}
+	for _, id := range ids {
+		if err := c.m.RegistrarMedicion(id, r.Tasa, detalle); err != nil {
+			return c.codigo(err)
+		}
 	}
 	if c.g.json {
 		return c.emitirJSON(r)

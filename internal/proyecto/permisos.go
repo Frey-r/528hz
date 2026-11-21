@@ -21,10 +21,12 @@ var Protegidos = []string{
 }
 
 // DenyNativos calcula las reglas deny de Claude Code: autoprotección + RD vigentes con capa `permisos`.
+// Solo Read(ruta) y Edit(ruta): Claude Code no aplica Write(ruta) en sus verificaciones de archivos y
+// Edit(ruta) ya cubre todas las herramientas que escriben (D-0047).
 func DenyNativos(reglas []ReglaDura) []string {
 	var out []string
 	for _, p := range Protegidos {
-		out = append(out, "Edit(./"+p+")", "Write(./"+p+")")
+		out = append(out, "Edit(./"+p+")")
 	}
 	for _, r := range Vigentes(reglas) {
 		if !r.TieneCapa("permisos") {
@@ -32,7 +34,7 @@ func DenyNativos(reglas []ReglaDura) []string {
 		}
 		for _, ruta := range r.Patrones.Rutas {
 			ruta = "./" + strings.TrimPrefix(filepathSlash(ruta), "./")
-			out = append(out, "Read("+ruta+")", "Edit("+ruta+")", "Write("+ruta+")")
+			out = append(out, "Read("+ruta+")", "Edit("+ruta+")")
 		}
 		out = append(out, r.Patrones.Herramientas...)
 	}
@@ -143,6 +145,17 @@ func FusionarPermisos(raiz string, reglas []string) (Accion, error) {
 			agregadas++
 		}
 	}
+	// Migración (D-0047): retira las Write(x) de versiones anteriores del harness cuando x ya tiene su Edit(x).
+	// Una Write sin su Edit no es nuestra: nunca se toca.
+	vigentes := deny[:0]
+	for _, d := range deny {
+		if strings.HasPrefix(d, "Write(") && presentes["Edit("+strings.TrimPrefix(d, "Write(")] {
+			agregadas++
+			continue
+		}
+		vigentes = append(vigentes, d)
+	}
+	deny = vigentes
 	if agregadas == 0 && !nuevo {
 		return Accion{rel, "existía"}, nil
 	}
