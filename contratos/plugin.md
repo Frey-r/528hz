@@ -57,3 +57,11 @@ Las rutas son relativas a la raíz y usan `/`. Las globs admiten `*` (un segment
 - **Equipo:** en el primer `tool.call` de cada `agentId`, el mod lo registra en `.harness/cache/equipo.json` (`{ id, tipo, descripcion, padre, visto }`) con `$.agent.list()`. Con eso `hz equipo` muestra quién es quién.
 - **Supervisor (`agent.spawn`):** agrega al prompt del subagente la línea «Tu supervisor es `<parentAgentId>` (o la sesión principal): escálale por SendMessage con ese id». Así cada agente sabe a quién escalar sin preguntar (D-0027).
 - **Watchdog:** si un agente acumula **5 tool calls seguidas con error**, el mod envía un único `ALERTA` a su supervisor (`$.session.send({ to: { agentId } })`). Si el supervisor es la sesión principal, muestra un toast.
+
+## 5. Lecciones justo a tiempo (incremento 3.4)
+- `hooks.json` v2 suma `lecciones: [{ id, skill, ambito, descripcion }]`, solo las **activas**. Una lección en prueba, reescrita o eliminada nunca se inyecta.
+- **`tool.call`** (N1+): la primera vez que un agente toca (`Read/Edit/Write/…`) un archivo dentro del ámbito de una lección activa, se adjunta como `context` el aviso «Lección L-n aplica… carga la skill …». Va **una sola vez por agente y lección**, para no llenar el contexto.
+
+## 6. Presupuesto de misión (incremento 3.5)
+- `hooks.json` v2 suma `misiones: [{ id, gasto, usd_max, sin_presupuesto }]`, solo las **activas** (las cerradas no frenan nada). `usd_max` sale de `mision.yaml → presupuesto.usd_max`; `gasto` es la suma de `hz mision gasto`. `sin_presupuesto` es `true` cuando `usd_max > 0` y `gasto ≥ usd_max`.
+- **`agent.spawn`** (en cualquier nivel: solo hay misiones si el humano las creó): si alguna misión activa está `sin_presupuesto`, se deniega el lanzamiento con la remediación «la misión <id> gastó US$x de US$y: pide al humano ampliar `presupuesto.usd_max` en mision.yaml (y `hz exportar`) o cierra la misión». Es un circuit breaker: el humano decide si se gasta más.

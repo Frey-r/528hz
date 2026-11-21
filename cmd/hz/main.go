@@ -75,7 +75,9 @@ func (g globales) directorio() string {
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 
 var conProyecto = map[string]bool{"reindex": true, "decision": true, "check": true, "estado": true, "tdd": true, "exportar": true,
-	"tablero": true, "arriendo": true, "tarjeta": true, "contexto": true, "salida": true, "equipo": true}
+	"tablero": true, "arriendo": true, "tarjeta": true, "contexto": true, "salida": true, "equipo": true,
+	"error": true, "leccion": true, "eval": true, "mutar": true, "redteam": true,
+	"mision": true, "ronda": true, "compare": true, "ruido": true, "milestone": true, "informe": true}
 
 func run(args []string, stdout, stderr io.Writer) int {
 	g, args, err := separarGlobales(args)
@@ -149,6 +151,28 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return ctx.salida(resto)
 	case "equipo":
 		return ctx.equipo()
+	case "error":
+		return ctx.errorCmd(resto)
+	case "leccion":
+		return ctx.leccion(resto)
+	case "eval":
+		return ctx.eval(resto)
+	case "mutar":
+		return ctx.mutar(resto)
+	case "redteam":
+		return ctx.redteam(resto)
+	case "mision":
+		return ctx.misionCmd(resto)
+	case "ronda":
+		return ctx.ronda(resto)
+	case "compare":
+		return ctx.compare(resto)
+	case "ruido":
+		return ctx.ruido(resto)
+	case "milestone":
+		return ctx.milestone(resto)
+	case "informe":
+		return ctx.informeCmd(resto)
 	default: // tdd
 		return ctx.tdd(resto)
 	}
@@ -321,6 +345,17 @@ func uso(w io.Writer) {
   hz salida --rol R --tarea T-n          criterio de salida determinista del rol
   hz capacidad [--json]                  cuántas células caben en esta máquina
   hz equipo                              directorio rol ↔ agentId (lo mantiene el plugin)
+  hz error nuevo|lista …                 errores en puntos de entrega (el ROJO del TDD no es error)
+  hz leccion nueva|estado|eliminar|lista|para …   lecciones (skills) con ciclo de vida
+  hz eval registrar|decidir L-n …        evals de lecciones y decisión determinista
+  hz mutar --archivo <src> [--cmd …]     mutation testing: ¿la suite detecta fallas sembradas?
+  hz redteam plan|registrar|estado …     efectividad de las reglas duras
+  hz mision nueva|fase|gasto|aceptar|cerrar|lista …   misiones N3 con presupuesto y contrato default-FAIL
+  hz ronda nueva|medir|cerrar|lista …    rondas de mejora; medir corre los sensores deterministas
+  hz compare <mision> R-a R-b [--metrica m]   comparación pareada con test de signos exacto
+  hz ruido <mision> R-a R-b              piso de ruido (dos mediciones del mismo código)
+  hz milestone proponer|marcar|lista …   el harness propone, el humano marca
+  hz informe <mision> [--json] [--html f]   informe C-level (datos o página para Artifact)
   hz regla ver RG-n                      texto de una regla general
   hz reindex                             reconstruye el índice desde los logs
   hz exportar                            regenera .harness/cache/hooks.json para el plugin

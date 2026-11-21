@@ -13,6 +13,8 @@ export type Hooks = {
   reglas_duras: { id: string; orden: string; remediacion: string; herramientas: string[]; rutas: string[]; bash: string[] }[]
   secretos: string[]
   arriendos?: { ruta: string; agente: string; tarea: string; expira: string }[]
+  lecciones?: { id: string; skill: string; ambito: string; descripcion: string }[]
+  misiones?: { id: string; gasto: number; usd_max: number; sin_presupuesto: boolean }[]
 }
 
 type Regla = Hooks['reglas_duras'][number]
@@ -269,4 +271,31 @@ export class Vigia {
 export function tareaDeDescripcion(descripcion: string): string | undefined {
   const numero = /\bT-(\d+)\b/i.exec(descripcion)?.[1]
   return numero ? `T-${numero}` : undefined
+}
+
+// ── Lecciones justo a tiempo (D-0008, D-0021) ──
+
+type LeccionActiva = NonNullable<Hooks['lecciones']>[number]
+
+/** Lecciones activas cuyo ámbito coincide con la ruta (misma semántica de glob que `hz leccion para`). */
+export function leccionesPara(h: Hooks, rel: string): LeccionActiva[] {
+  const relN = rel.toLowerCase()
+  return (h.lecciones ?? []).filter(l => coincide(l.ambito.toLowerCase(), relN))
+}
+
+/** Aviso breve: la lección completa vive en su skill; aquí solo se indica que aplica. */
+export const avisoLeccion = (l: LeccionActiva) =>
+  `Lección del harness ${l.id} aplica a este archivo: ${l.descripcion}. Carga la skill ${l.skill} antes de seguir editando.`
+
+const usd = (v: number) => `US$${v.toFixed(2)}`
+
+/**
+ * Circuit breaker de presupuesto (contratos/plugin.md §6): con una misión activa sin presupuesto no se lanzan
+ * subagentes; el humano decide si se gasta más.
+ */
+export function frenoPresupuesto(h: Hooks): string | undefined {
+  const m = h.misiones?.find(x => x.sin_presupuesto)
+  if (!m) return undefined
+  return `Sin presupuesto: la misión ${m.id} gastó ${usd(m.gasto)} de ${usd(m.usd_max)}. ` +
+    'Pide al humano ampliar presupuesto.usd_max en su mision.yaml (y luego `hz exportar`) o cierra la misión.'
 }

@@ -39,3 +39,8 @@ Agrega:
 
 ## Notificaciones
 Una PushNotification breve por milestone, con el link al informe.
+
+## Estado de implementación (3.5, D-0044)
+- `hz informe <m> --json` es el contrato de datos; `hz informe <m> --html <archivo>` genera la página autocontenida (Go `html/template` + SVG calculado en Go, sin JS) que la skill `hz:informe` publica como Artifact en la misma URL.
+- La página cubre el contenido C-level de **Mejora**: KPIs, small multiples con milestones, meta y banda de ruido, línea base → último milestone, milestones, gasto y tabla.
+- **Pendiente:** el contenido de **Génesis** (criterios del contrato y funcionalidades por célula) y el flag `--tecnico` en el CLI. Mientras tanto, la skill arma la versión técnica con `hz compare --json`, `hz error lista`, `hz leccion lista` y `hz redteam estado`.

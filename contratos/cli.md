@@ -145,3 +145,87 @@ Cada transición agrega un evento `tdd.<estado>` en `tdd.jsonl` y regenera **`.h
   ```
 
   donde `reserva = max(1 GB, 10 % de la RAM total)` y `límite_concurrencia = CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` (20 si no está definido). Si el resultado es 0, recomienda liberar RAM. `--json` da la salida en JSON.
+
+---
+
+# Incremento 3.4 · Evals y aprendizaje (docs/diseno/06-tdd-y-evals.md §3–4)
+
+### Errores (solo en puntos de entrega; el ROJO del TDD no es error)
+`hz error nuevo --que "…" --fuente F --severidad S --causa C --clase <slug> [--ambito "<glob>"] [--patron "…"] [--tarea T-n] [--agente id] [--rol r] [--detectado-por v | --escapo] [--leccion L-n]`
+- `fuente`: verificacion | evaluador | humano | regla_dura | revert | regresion.
+- `severidad`: critico | mayor | menor.
+- `causa`: contrato_ambiguo | contexto_faltante | regla_ignorada | patron_incorrecto | herramienta_mal_usada | test_debil | sobreajuste | otra.
+- **Deduplicación por `--clase`:** si la clase existe, suma recurrencia; si es nueva, nace con su causa, ámbito y patrón. Devuelve `E-NNNN` y la recurrencia de la clase.
+- **Con `--leccion L-n` y severidad `critico`:** la lección se **elimina de raíz** (se borra la carpeta de su skill y queda una decisión registrada).
+- `hz error lista [--clase c]`.
+
+### Lecciones (la skill va antes que el registro)
+- `hz leccion nueva --clase c --skill hz-leccion-<x> [--descripcion "…"]`: exige que `.claude/skills/<skill>/SKILL.md` exista; nace `en_prueba` y devuelve `L-NNNN`.
+- `hz leccion estado L-n <nuevo> --motivo "…"`, con transiciones válidas:
+  - `en_prueba → activa | reescrita`
+  - `reescrita → en_prueba`
+  - `activa → reescrita | podada | eliminada`
+
+  Cada `reescrita` suma 1 a las reescrituras. La tercera reescritura se rechaza con «escala al humano».
+- `hz leccion eliminar L-n --motivo "…"`: borra de raíz la carpeta de la skill y registra la decisión.
+- `hz leccion lista [--estado e]` y `hz leccion para <ruta>`: devuelve las lecciones **activas** cuyo ámbito coincide con la ruta (modo índice, D-0021/D-0029).
+- Se exportan a `hooks.json → lecciones: [{ id, skill, ambito, descripcion }]` (solo las activas), para la inyección justo a tiempo.
+
+### Evals de lecciones
+- `hz eval registrar L-n --tipo prevencion|interferencia|activacion --resultado pasa|falla [--costo usd] [--detalle "…"]`.
+- `hz eval decidir L-n [--aplicar]`, determinista y en este orden:
+  1. Un error crítico que implica a la lección → `eliminar`.
+  2. Faltan tipos por evaluar → `faltan evals: …`.
+  3. Los tres tipos pasan (último resultado de cada uno) → `activar`.
+  4. Alguno falla → `reescribir`, o `escalar al humano` si ya tiene 2 reescrituras.
+
+### Meta-eval de verificadores (mutation testing, evals para lo determinista)
+`hz mutar --archivo <src> [--cmd "…"] [--max 20] [--timeout 120s]`
+- Aplica mutaciones textuales, **una a la vez**, fuera de strings y comentarios: ` + `↔` - `, ` == `↔` != `, ` < `↔` >= `, ` > `↔` <= `, ` && `↔` || ` y `true`↔`false`.
+- Para cada mutante corre el comando (`comandos.test` por defecto): un mutante es **detectado** si el comando falla.
+- **Siempre restaura el original** (respaldo en `.harness/cache/mutar.bak` y verificación por hash).
+- Informa la tasa de detección y los mutantes sobrevivientes (`línea:col operador`), que son candidatos a `test_debil`.
+- Registra la medición en `verificadores.jsonl`.
+
+### Red-team de reglas duras (efectividad medida, D-0011/D-0026)
+- `hz redteam plan [RD-n]`: genera los casos de la regla a partir de sus patrones, con variantes de evasión (`rt-<n>-<k>`). Se corren en un **worktree aislado**.
+- `hz redteam registrar RD-n --caso rt-… --resultado bloqueado|paso [--capa c] [--detalle "…"]`. Un `paso` marca la RD como **inefectiva**, con cuándo y por qué, y registra automáticamente un error `critico` de fuente `regla_dura`.
+- `hz redteam estado`: por cada RD muestra casos, bloqueados, pasados y estado (`efectiva | inefectiva | sin red-team`), con el caso que la evadió.
+
+---
+
+# Incremento 3.5 · Misiones N3 (docs/diseno/08-misiones.md)
+
+### Misión
+- `hz mision nueva <id> --modo genesis|mejora --objetivo "…" [--usd-max n]`: crea `.harness/misiones/<id>/mision.yaml` (esqueleto válido contra `schema/mision.schema.json`) y `estado.json`. Registra el evento `mision.nueva`.
+- `hz mision fase <id> <fase> [--proximo "…"]`: actualiza `estado.json` (fase y próximo paso) en cada transición. Es lo que lee `hz estado` para retomar.
+- `hz mision gasto <id> --usd x [--concepto "…"]`: acumula gasto. Si llega a `presupuesto.usd_max`, la misión queda **sin presupuesto** y el plugin deniega lanzar subagentes, con remediación.
+- `hz mision aceptar <id> <criterio> --evidencia "comando → resultado"`: marca un criterio del contrato default-FAIL, siempre con evidencia.
+- `hz mision cerrar <id>`: código 1 si algún criterio de `aceptacion` no está cumplido con evidencia. Si todos lo están, la misión queda cerrada.
+
+### Verticales y sensores (modo mejora)
+- `mision.yaml → verticales[].metricas[]`: `{ id, familia: efectividad|impacto|fallos, sensor, direccion: sube|baja, meta, linea_base?, piso_ruido? }`. Cada vertical lleva al menos una métrica de cada familia (D-0022).
+- **Formato del sensor:** comando determinista que imprime JSON por ítem en stdout: `[{"item_id": "…", "resultado": true|false}]` o `[{"item_id": "…", "puntaje": 0.0–1.0}]`. `{ronda}` se reemplaza por el ID de la ronda. El valor de la métrica es el promedio.
+
+### Rondas
+- `hz ronda nueva <mision> [--foco V-a,V-b]` → `R-n`.
+- `hz ronda medir <mision> R-n [--metrica m] [--conjunto trabajo|holdout|ruido]`: corre los sensores, guarda los resultados por ítem en `.harness/misiones/<id>/rondas/R-n/<metrica>.<conjunto>.json` y registra la medición. Los números siempre salen de aquí; el modelo nunca los cuenta.
+- `hz ronda cerrar <mision> R-n --veredicto mantener|revertir`: cierra la ronda. Con `mantener`, **pregunta siempre** si se marca como milestone y, si el salto es evidente y grande, lo **propone** con su justificación (D-0019). Una ronda revertida no es candidata.
+
+### Comparación y ruido
+- `hz compare <mision> R-a R-b [--metrica m]`: comparación pareada por `item_id`, con ganados, perdidos, empates, valor A → B, delta y p de un **test de signos exacto** sobre los pares discordantes (McNemar exacto si es binario).
+  - `veredicto`: `ruido` si |delta| ≤ piso de ruido o p > 0,05; si no, `mejora` o `regresion` según la dirección de la métrica.
+- `hz ruido <mision> R-a R-b`: dos mediciones del **mismo código** → `piso_ruido = |delta|` por métrica (registrado).
+
+### Milestones (los define el usuario)
+- `hz milestone proponer <mision> [R-n]`: propone solo si alguna métrica mejora más de **k × piso_ruido** (k = 2 por defecto) frente al último milestone (o a la línea base, o a la primera ronda), sin regresiones fuera de ruido. Solo cuentan las métricas con piso conocido (`hz ruido` o `piso_ruido` en mision.yaml): sin piso no hay forma de saber si el salto es grande. Nunca marca nada.
+- `hz milestone marcar <mision> R-n --resumen "…" [--propuesta]`: lo ejecuta el humano. Registra el milestone (`MS-n`) con su resumen de una línea.
+
+### Informe C-level (D-0009)
+- `hz informe <mision> --json`: datos deterministas para el informe:
+  - KPIs por métrica: actual vs. línea base vs. meta;
+  - serie por ronda;
+  - milestones;
+  - comparación entre milestones;
+  - gasto.
+- `hz informe <mision> --html <archivo>`: página autocontenida con el design system de `dash_example.jpg`. Los números salen del motor. Se publica como Artifact con la skill `hz:informe`.

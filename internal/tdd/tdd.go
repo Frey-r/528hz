@@ -2,6 +2,7 @@
 package tdd
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -77,29 +78,45 @@ func (c *colaAcotada) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
+// ErrLimite indica que el comando superó su tiempo límite (en mutation testing cuenta como mutante detectado).
+var ErrLimite = errors.New("el comando superó su tiempo límite")
+
 // shell elige el intérprete: HZ_SHELL, luego `sh` (en Windows, el de Git y no el lanzador de WSL), luego cmd.
-func shell(cmd string) *exec.Cmd {
+func shell(ctx context.Context, cmd string) *exec.Cmd {
 	if s := os.Getenv("HZ_SHELL"); s != "" {
-		return exec.Command(s, "-c", cmd)
+		return exec.CommandContext(ctx, s, "-c", cmd)
 	}
 	if sh, err := exec.LookPath("sh"); err == nil && !strings.Contains(strings.ToLower(sh), `\windows\system32`) {
-		return exec.Command(sh, "-c", cmd)
+		return exec.CommandContext(ctx, sh, "-c", cmd)
 	}
 	if runtime.GOOS == "windows" {
-		return exec.Command("cmd", "/C", cmd)
+		return exec.CommandContext(ctx, "cmd", "/C", cmd)
 	}
-	return exec.Command("/bin/sh", "-c", cmd)
+	return exec.CommandContext(ctx, "/bin/sh", "-c", cmd)
 }
 
 // Ejecutar corre `cmd` en `dir` y captura la salida combinada acotada.
-func Ejecutar(dir, cmd string) (Resultado, error) {
-	c := shell(cmd)
+func Ejecutar(dir, cmd string) (Resultado, error) { return EjecutarConLimite(dir, cmd, 0) }
+
+// EjecutarConLimite es Ejecutar con tiempo límite (0 = sin límite); al vencer devuelve ErrLimite.
+func EjecutarConLimite(dir, cmd string, limite time.Duration) (Resultado, error) {
+	ctx := context.Background()
+	if limite > 0 {
+		var cancelar context.CancelFunc
+		ctx, cancelar = context.WithTimeout(ctx, limite)
+		defer cancelar()
+	}
+	c := shell(ctx, cmd)
 	c.Dir = dir
+	c.WaitDelay = 5 * time.Second // no quedar colgado esperando las tuberías de un hijo que sobrevive
 	cola := &colaAcotada{max: maxSalida}
 	c.Stdout, c.Stderr = cola, cola
 	inicio := time.Now()
 	err := c.Run()
 	r := Resultado{Salida: string(cola.buf), Duracion: time.Since(inicio)}
+	if ctx.Err() == context.DeadlineExceeded {
+		return r, fmt.Errorf("%w (%s): %q", ErrLimite, limite, cmd)
+	}
 	var salida *exec.ExitError
 	switch {
 	case err == nil:
@@ -276,3 +293,12 @@ func (q Maquina) avanzar(id, cmd, nuevo string, desde ...string) error {
 
 // ExportarHooks regenera .harness/cache/hooks.json v2 (contratos/plugin.md); vive en el paquete exportar.
 func ExportarHooks(m *motor.Motor, raiz string) error { return exportar.Escribir(m, raiz) }
+
+// Shell expone la selección de intérprete para otros paquetes (p. ej. los sensores de las misiones).
+func Shell(ctx context.Context, cmd string) *exec.Cmd { return shell(ctx, cmd) }
+
+// ColaAcotada devuelve un writer que conserva solo los últimos `max` bytes, y una función para leerlos.
+func ColaAcotada(max int) (io.Writer, func() string) {
+	c := &colaAcotada{max: max}
+	return c, func() string { return string(c.buf) }
+}

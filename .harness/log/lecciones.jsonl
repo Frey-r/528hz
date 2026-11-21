@@ -1,0 +1,2 @@
+{"evento":"leccion.nueva","ts":"2026-11-20T20:32:59-03:00","datos":{"id":"L-0001","clase":"escape-heredoc-bash","skill":"hz-leccion-escape-heredoc","descripcion":"Barras invertidas: escribir con Write/Edit o chr(92), nunca por heredoc; verificar caracteres de control","estado":"en_prueba","reescrituras":0,"creada":"2026-11-20T20:32:59-03:00"}}
+{"evento":"leccion.estado","ts":"2026-11-20T20:37:19-03:00","datos":{"id":"L-0001","estado":"reescrita","motivo":"falla en prevencion (falla menor de interpretación)","en":"2026-11-20T20:37:19-03:00"}}

@@ -107,3 +107,31 @@ test('registra al subagente en el equipo en su primer tool call', async ($, on) 
   expect(escrito.at(-1)).toContain('ag2')
   expect(escrito.at(-1)).toContain('lider9')
 })
+
+test('avisa una sola vez por agente la lección que aplica al archivo que toca', async ($, on) => {
+  const hooks = JSON.stringify({ ...JSON.parse(HOOKS), lecciones: [{ id: 'L-1', skill: 'hz-leccion-escape', ambito: '**/*.ts', descripcion: 'usa Edit para regex' }] })
+  motor(on, { hooks })
+  on('agent.list', () => ({ value: [] }))
+  on('fs.write', () => ({ value: undefined }))
+  await $.session.start({ cwd: RAIZ, surface: 'terminal', isInteractive: true })
+  const primera: any = await $.tool.call({ tool: 'Read', file_path: `${RAIZ}/src/a.ts`, agentId: 'ag1' })
+  expect((primera.context ?? []).join(' ')).toContain('hz-leccion-escape')
+  const segunda: any = await $.tool.call({ tool: 'Read', file_path: `${RAIZ}/src/b.ts`, agentId: 'ag1' })
+  expect((segunda.context ?? []).join(' ')).not.toContain('hz-leccion-escape')
+  const otraRuta: any = await $.tool.call({ tool: 'Read', file_path: `${RAIZ}/src/c.go`, agentId: 'ag2' })
+  expect((otraRuta.context ?? []).join(' ')).not.toContain('hz-leccion-escape')
+})
+
+test('frena el lanzamiento de subagentes cuando una misión activa se quedó sin presupuesto', async ($, on) => {
+  const hooks = JSON.stringify({ ...JSON.parse(HOOKS), misiones: [{ id: 'm1', gasto: 1.5, usd_max: 1, sin_presupuesto: true }] })
+  motor(on, { hooks })
+  let lanzado = false
+  on('agent.spawn', () => {
+    lanzado = true
+    return { model: 'sonnet' }
+  })
+  await $.session.start({ cwd: RAIZ, surface: 'terminal', isInteractive: true })
+  const r: any = await $.agent.spawn({ tool_use_id: 't1', prompt: 'x', description: 'implementador T-1', subagentType: 'general-purpose' } as any)
+  expect(r.deny).toContain('presupuesto')
+  expect(lanzado).toBe(false)
+})

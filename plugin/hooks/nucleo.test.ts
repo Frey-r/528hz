@@ -1,7 +1,7 @@
 // Contrato: contratos/plugin.md §3. Lógica pura de los guardias (sin $).
 import { expect, test } from 'claude-code/testing'
 
-import { coincide, escribeEnBash, evaluarEntrada, firmas, lineaSupervisor, puntero, relativizar, retener, tareaDeDescripcion, Vigia, type Hooks } from './nucleo'
+import { coincide, escribeEnBash, evaluarEntrada, firmas, lineaSupervisor, puntero, relativizar, retener, tareaDeDescripcion, Vigia, avisoLeccion, leccionesPara, frenoPresupuesto, type Hooks } from './nucleo'
 
 const RAIZ = 'C:\\proy\\demo'
 
@@ -148,4 +148,24 @@ test('bash: operadores entre comillas son datos y los segmentos `hz` son el cami
   expect(escribeEnBash(H, `grep "x > y" tests/sumar_test.go`)).toBeUndefined()
   expect(escribeEnBash(H, `hz tdd estado && echo x > tests/sumar_test.go`)).toContain('RG-2.3')
   expect(escribeEnBash(H, `echo x > "tests/sumar_test.go"`)).toContain('RG-2.3')
+})
+
+// ── Lecciones justo a tiempo (contratos/cli.md §3.4) ──
+
+test('lecciones activas por ámbito y su aviso', () => {
+  const h: Hooks = { ...H, lecciones: [{ id: 'L-1', skill: 'hz-leccion-escape', ambito: '**/*.ts', descripcion: 'usa Edit para regex' }] }
+  expect(leccionesPara(h, 'src/a.ts').map(l => l.id)).toEqual(['L-1'])
+  expect(leccionesPara(h, 'src/a.go')).toHaveLength(0)
+  const aviso = avisoLeccion(h.lecciones![0]!)
+  expect(aviso).toContain('L-1')
+  expect(aviso).toContain('hz-leccion-escape')
+})
+
+test('frena por presupuesto solo si una misión activa se quedó sin él, con remediación', () => {
+  expect(frenoPresupuesto(H)).toBeUndefined()
+  expect(frenoPresupuesto({ ...H, misiones: [{ id: 'm1', gasto: 0.4, usd_max: 1, sin_presupuesto: false }] })).toBeUndefined()
+  const motivo = frenoPresupuesto({ ...H, misiones: [{ id: 'm1', gasto: 1.5, usd_max: 1, sin_presupuesto: true }] })
+  expect(motivo).toContain('m1')
+  expect(motivo).toContain('presupuesto')
+  expect(motivo).toContain('usd_max')
 })

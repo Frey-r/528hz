@@ -1,0 +1,248 @@
+<meta charset="utf-8">
+<title>{{.Titulo}}</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Space+Grotesk:wght@500;600&amp;display=swap">
+<style>
+:root {
+  color-scheme: dark;
+  --bg: #0b1416; --halo: rgba(34, 168, 142, .16);
+  --panel: rgba(255, 255, 255, .035); --borde: rgba(255, 255, 255, .08); --anillo: #121c1e;
+  --fg: #e4efec; --fg2: #a3b8b3; --fg3: #74897f;
+  --grid: rgba(255, 255, 255, .07); --eje: rgba(255, 255, 255, .22);
+  --serie: #22a88e; --antes: #176b5b; --banda: rgba(34, 168, 142, .14); --meta: #c8d5d2;
+  --ok: #0ca30c; --ok-tx: #8edb8e; --ok-fondo: rgba(12, 163, 12, .16);
+  --warn: #fab219; --warn-tx: #fcd27c; --warn-fondo: rgba(250, 178, 25, .14);
+  --crit: #d03b3b; --crit-tx: #f3a7a7; --crit-fondo: rgba(208, 59, 59, .17);
+  --neutro-tx: #c3d1ce; --neutro-fondo: rgba(255, 255, 255, .06);
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --bg: #f7fbfa; --halo: rgba(14, 140, 117, .10);
+    --panel: rgba(255, 255, 255, .78); --borde: rgba(15, 40, 36, .10); --anillo: #ffffff;
+    --fg: #0f201d; --fg2: #46605b; --fg3: #687e79;
+    --grid: rgba(15, 40, 36, .08); --eje: rgba(15, 40, 36, .25);
+    --serie: #0e8c75; --antes: #4dae99; --banda: rgba(14, 140, 117, .11); --meta: #3c4f4b;
+    --ok-tx: #0a6e0a; --ok-fondo: rgba(12, 163, 12, .10);
+    --warn-tx: #7d5200; --warn-fondo: rgba(250, 178, 25, .16);
+    --crit-tx: #a32424; --crit-fondo: rgba(208, 59, 59, .10);
+    --neutro-tx: #3b4f4b; --neutro-fondo: rgba(15, 40, 36, .05);
+  }
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f7fbfa; --halo: rgba(14, 140, 117, .10);
+  --panel: rgba(255, 255, 255, .78); --borde: rgba(15, 40, 36, .10); --anillo: #ffffff;
+  --fg: #0f201d; --fg2: #46605b; --fg3: #687e79;
+  --grid: rgba(15, 40, 36, .08); --eje: rgba(15, 40, 36, .25);
+  --serie: #0e8c75; --antes: #4dae99; --banda: rgba(14, 140, 117, .11); --meta: #3c4f4b;
+  --ok-tx: #0a6e0a; --ok-fondo: rgba(12, 163, 12, .10);
+  --warn-tx: #7d5200; --warn-fondo: rgba(250, 178, 25, .16);
+  --crit-tx: #a32424; --crit-fondo: rgba(208, 59, 59, .10);
+  --neutro-tx: #3b4f4b; --neutro-fondo: rgba(15, 40, 36, .05);
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 15px/1.55 Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background-image: radial-gradient(1000px 520px at 90% -8%, var(--halo), transparent 70%); background-repeat: no-repeat;
+  -webkit-font-smoothing: antialiased;
+}
+.pagina {
+  max-width: 1120px; margin: 0 auto; padding-block: 40px 56px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+h1, h2, h3 { font-family: "Space Grotesk", Inter, ui-sans-serif, system-ui, sans-serif; font-weight: 600; letter-spacing: -.01em; margin: 0; }
+h1 { font-size: clamp(28px, 4.2vw, 42px); line-height: 1.08; }
+h2 { font-size: 18px; margin: 44px 0 14px; }
+h3 { font-size: 17px; }
+.sobre { margin: 0 0 10px; color: var(--fg3); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+.objetivo { margin: 10px 0 0; color: var(--fg2); max-width: 70ch; }
+.lede { margin: 18px 0 0; font-size: 17px; max-width: 72ch; }
+.panel { background: var(--panel); border: 1px solid var(--borde); border-radius: 16px; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 26px 0 0; }
+.stat { padding: 14px 16px; min-width: 0; }
+.stat dt { color: var(--fg3); font-size: 12px; }
+.stat dd { margin: 2px 0 0; font: 600 26px/1.2 "Space Grotesk", Inter, sans-serif; font-variant-numeric: tabular-nums; }
+.stat .nota { margin: 2px 0 0; color: var(--fg2); font-size: 12.5px; }
+.presupuesto { margin: 12px 0 0; padding: 12px 16px; display: grid; gap: 8px; }
+.presupuesto p { margin: 0; font-size: 13px; }
+.presupuesto.ok p { color: var(--ok-tx); } .presupuesto.warn p { color: var(--warn-tx); } .presupuesto.crit p { color: var(--crit-tx); }
+.barra { height: 6px; border-radius: 999px; background: var(--grid); overflow: hidden; }
+.barra > span { display: block; height: 100%; border-radius: 999px; background: var(--serie); }
+.warn .barra > span { background: var(--warn); } .crit .barra > span { background: var(--crit); }
+.kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.kpi { padding: 16px 18px; display: flex; flex-direction: column; min-width: 0; }
+.kpi-cab { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
+.familia { color: var(--fg3); font-size: 11.5px; text-transform: uppercase; letter-spacing: .07em; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 500; white-space: nowrap; background: var(--neutro-fondo); color: var(--neutro-tx); }
+.chip.ok { background: var(--ok-fondo); color: var(--ok-tx); }
+.chip.crit { background: var(--crit-fondo); color: var(--crit-tx); }
+.vertical { margin: 2px 0 0; color: var(--fg3); font-size: 12.5px; }
+.valor { margin: 12px 0 0; font: 600 40px/1 "Space Grotesk", Inter, sans-serif; font-variant-numeric: tabular-nums; }
+.delta { margin: 6px 0 0; color: var(--fg2); font-size: 13px; font-variant-numeric: tabular-nums; }
+.kpi .barra { margin-top: 14px; }
+.pie { display: flex; justify-content: space-between; gap: 8px; margin: 6px 0 0; color: var(--fg3); font-size: 12px; font-variant-numeric: tabular-nums; }
+.sentido { margin: 2px 0 0; color: var(--fg3); font-size: 12px; }
+.leyenda { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: -4px 0 12px; color: var(--fg2); font-size: 12.5px; }
+.leyenda span { display: inline-flex; align-items: center; gap: 7px; }
+.leyenda i { display: inline-block; }
+.l-linea { width: 18px; height: 2px; background: var(--serie); }
+.l-ms, .l-despues { width: 10px; height: 10px; border-radius: 50%; background: var(--serie); box-shadow: 0 0 0 2px var(--anillo); }
+.l-antes { width: 10px; height: 10px; border-radius: 50%; background: var(--antes); }
+.l-meta { width: 18px; border-top: 2px dashed var(--meta); }
+.l-banda { width: 14px; height: 10px; border-radius: 2px; background: var(--banda); }
+.multiples { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.grafico { margin: 0; padding: 14px 14px 8px; min-width: 0; }
+.grafico figcaption { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; margin: 0 4px 6px; font-size: 14px; }
+.grafico figcaption span { color: var(--fg3); font-size: 12px; }
+svg { display: block; width: 100%; height: auto; overflow: visible; }
+svg text { font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+.g-grid { stroke: var(--grid); stroke-width: 1; }
+.g-eje { fill: var(--fg3); font-size: 10px; font-variant-numeric: tabular-nums; }
+.g-banda { fill: var(--banda); }
+.g-meta { stroke: var(--meta); stroke-width: 1.25; stroke-dasharray: 4 4; }
+.g-meta-tx { fill: var(--fg2); font-size: 10px; }
+.g-meta-tx, .g-ms-tx { paint-order: stroke; stroke: var(--anillo); stroke-width: 3px; stroke-linejoin: round; }
+.g-linea { fill: none; stroke: var(--serie); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.g-dot { fill: var(--serie); opacity: .55; }
+.g-ms .g-dot { opacity: 1; stroke: var(--anillo); stroke-width: 2; }
+.g-ms-tx { fill: var(--fg); font-size: 10px; font-weight: 600; }
+.g-hit { fill: transparent; }
+.g-pt:hover .g-dot { opacity: 1; }
+.g-vacio { fill: var(--fg3); font-size: 12px; }
+.pesas { padding: 6px 18px; }
+.pesa { display: grid; grid-template-columns: minmax(120px, 190px) minmax(0, 1fr) minmax(120px, auto); gap: 8px 16px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--borde); }
+.pesa:last-child { border-bottom: 0; }
+.pesa svg { max-width: 520px; justify-self: center; }
+.pesa-nombre { margin: 0; display: flex; flex-direction: column; font-size: 14px; }
+.pesa-nombre span { color: var(--fg3); font-size: 12px; }
+.p-eje { stroke: var(--grid); stroke-width: 1; }
+.p-tramo { stroke: var(--eje); stroke-width: 2; }
+.p-antes { fill: var(--antes); }
+.p-despues { fill: var(--serie); stroke: var(--anillo); stroke-width: 2; }
+.p-medio { fill: var(--serie); opacity: .5; }
+.p-tx { fill: var(--fg2); font-size: 11px; font-variant-numeric: tabular-nums; }
+.p-tx.fuerte { fill: var(--fg); font-weight: 600; }
+.pesa-delta { margin: 0; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums; }
+.pesa-delta.ok { color: var(--ok-tx); } .pesa-delta.crit { color: var(--crit-tx); } .pesa-delta.neutro { color: var(--fg2); }
+.hitos { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.hitos li { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline; padding: 12px 16px; }
+.hito-id { font: 600 14px "Space Grotesk", Inter, sans-serif; display: inline-flex; align-items: center; gap: 8px; }
+.hito-id::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--serie); box-shadow: 0 0 0 2px var(--anillo); }
+.hito-ronda { color: var(--fg3); font-size: 12.5px; }
+.vacio { color: var(--fg2); margin: 0; }
+.datos { margin-top: 44px; padding: 2px 16px; }
+.datos summary { cursor: pointer; padding: 12px 0; font-weight: 500; }
+.tabla-scroll { overflow-x: auto; padding-bottom: 12px; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+th, td { padding: 8px 10px; text-align: right; border-bottom: 1px solid var(--borde); white-space: nowrap; }
+th[scope="row"], td.izq, thead th.izq { text-align: left; }
+thead th { color: var(--fg3); font-weight: 500; font-size: 12px; }
+.ms { color: var(--fg3); font-size: 11px; }
+.pie-pagina { margin-top: 28px; color: var(--fg3); font-size: 12.5px; }
+code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: .95em; }
+@media (max-width: 640px) {
+  .pesa { grid-template-columns: minmax(0, 1fr); }
+  .pesa-delta { text-align: left; }
+}
+</style>
+<main class="pagina">
+  <header>
+    <p class="sobre">{{.Sobre}}</p>
+    <h1>{{.Titulo}}</h1>
+    {{with .Objetivo}}<p class="objetivo">{{.}}</p>{{end}}
+    <p class="lede">{{.Lede}}</p>
+    <dl class="stats">
+      {{range .Stats}}<div class="panel stat"><dt>{{.Etiqueta}}</dt><dd>{{.Valor}}</dd>{{with .Nota}}<p class="nota">{{.}}</p>{{end}}</div>
+      {{end}}
+    </dl>
+    <div class="panel presupuesto {{.Gasto.Clase}}">
+      {{if .Gasto.ConTope}}<div class="barra" role="img" aria-label="gasto del presupuesto"><span style="{{.Gasto.Ancho}}"></span></div>{{end}}
+      <p>{{.Gasto.Texto}}</p>
+    </div>
+  </header>
+
+  <section aria-labelledby="t-kpis">
+    <h2 id="t-kpis">Dónde estamos</h2>
+    <div class="kpis">
+      {{range .KPIs}}<article class="panel kpi">
+        <div class="kpi-cab"><span class="familia">{{.Familia}}</span><span class="chip {{.Clase}}"><span aria-hidden="true">{{.Icono}}</span>{{.Estado}}</span></div>
+        <h3>{{.ID}}</h3>
+        <p class="vertical">{{.Vertical}}</p>
+        <p class="valor">{{.Valor}}</p>
+        <p class="delta">{{.Delta}}</p>
+        <div class="barra" role="img" aria-label="{{.AvanceTexto}}"><span style="{{.Avance}}"></span></div>
+        <p class="pie"><span>{{.Base}}</span><span>{{.Meta}}</span></p>
+        <p class="sentido">{{.Sentido}}</p>
+      </article>
+      {{end}}
+    </div>
+  </section>
+
+  <section aria-labelledby="t-evolucion">
+    <h2 id="t-evolucion">Evolución por ronda</h2>
+    <p class="leyenda"><span><i class="l-linea"></i>valor por ronda</span><span><i class="l-ms"></i>milestone</span><span><i class="l-meta"></i>meta</span><span><i class="l-banda"></i>ruido alrededor de la línea base</span></p>
+    <div class="multiples">
+      {{range .Graficos}}<figure class="panel grafico">
+        <figcaption><strong>{{.ID}}</strong><span>{{.Vertical}}</span></figcaption>
+        <svg viewBox="0 0 320 168" role="img" aria-label="{{.Resumen}}">
+          {{range .Grid}}<line class="g-grid" x1="{{$.Geo.Izq}}" x2="{{$.Geo.Fin}}" y1="{{.Y}}" y2="{{.Y}}"/><text class="g-eje" x="{{$.Geo.EjeX}}" y="{{.YTexto}}" text-anchor="end">{{.Texto}}</text>{{end}}
+          {{with .Banda}}<rect class="g-banda" x="{{$.Geo.Izq}}" width="{{$.Geo.Ancho}}" y="{{.Y}}" height="{{.Alto}}"><title>{{.Titulo}}</title></rect>{{end}}
+          <line class="g-meta" x1="{{$.Geo.Izq}}" x2="{{$.Geo.Fin}}" y1="{{.Meta.Y}}" y2="{{.Meta.Y}}"/>
+          {{if .Vacio}}<text class="g-vacio" x="{{$.Geo.CentroX}}" y="{{$.Geo.CentroY}}" text-anchor="middle">aún sin mediciones</text>{{else}}<path class="g-linea" d="{{.Ruta}}"/>
+          {{range .Puntos}}<g class="g-pt{{if .Milestone}} g-ms{{end}}"><title>{{.Titulo}}</title><circle class="g-hit" cx="{{.X}}" cy="{{.Y}}" r="10"/><circle class="g-dot" cx="{{.X}}" cy="{{.Y}}" r="{{if .Milestone}}5.5{{else}}3{{end}}"/>{{if .Milestone}}<text class="g-ms-tx" x="{{.X}}" y="{{.YTexto}}" text-anchor="{{.Ancla}}">{{.Milestone}}</text>{{end}}</g>{{end}}
+          {{range .Ejes}}<text class="g-eje" x="{{.X}}" y="{{$.Geo.EjeY}}" text-anchor="middle">{{.Texto}}</text>{{end}}{{end}}
+          <text class="g-meta-tx" x="{{$.Geo.MetaX}}" y="{{.Meta.YTexto}}">{{.Meta.Texto}}</text>
+        </svg>
+      </figure>
+      {{end}}
+    </div>
+  </section>
+
+  {{if .Pesas}}<section aria-labelledby="t-salto">
+    <h2 id="t-salto">{{.TituloPesas}}</h2>
+    <p class="leyenda"><span><i class="l-antes"></i>línea base</span><span><i class="l-despues"></i>{{.LeyendaHasta}}</span></p>
+    <div class="panel pesas">
+      {{range .Pesas}}<div class="pesa">
+        <p class="pesa-nombre"><strong>{{.ID}}</strong><span>{{.Tramo}}</span></p>
+        <svg viewBox="0 0 480 40" role="img" aria-label="{{.Resumen}}">
+          <line class="p-eje" x1="{{$.Geo.PIzq}}" x2="{{$.Geo.PFin}}" y1="20" y2="20"/>
+          <line class="p-tramo" x1="{{.X1}}" x2="{{.X2}}" y1="20" y2="20"/>
+          {{range .Medios}}<circle class="p-medio" cx="{{.X}}" cy="20" r="4"><title>{{.Titulo}}</title></circle>{{end}}
+          <circle class="p-antes" cx="{{.X1}}" cy="20" r="6"><title>{{.Titulo1}}</title></circle>
+          <circle class="p-despues" cx="{{.X2}}" cy="20" r="6"><title>{{.Titulo2}}</title></circle>
+          <text class="p-tx" x="{{.LX1}}" y="24" text-anchor="{{.A1}}">{{.Txt1}}</text>
+          <text class="p-tx fuerte" x="{{.LX2}}" y="24" text-anchor="{{.A2}}">{{.Txt2}}</text>
+        </svg>
+        <p class="pesa-delta {{.Clase}}">{{.Delta}}</p>
+      </div>
+      {{end}}
+    </div>
+  </section>{{end}}
+
+  <section aria-labelledby="t-hitos">
+    <h2 id="t-hitos">Milestones</h2>
+    {{if .Hitos}}<ol class="hitos">
+      {{range .Hitos}}<li class="panel"><span class="hito-id">{{.ID}}</span><span class="hito-ronda">{{.Ronda}}</span><span>{{.Resumen}}</span></li>
+      {{end}}
+    </ol>{{else}}<p class="vacio">Aún no hay milestones. Los define el humano; el harness propone uno cuando el salto es evidente.</p>{{end}}
+  </section>
+
+  <details class="panel datos">
+    <summary>Ver los datos en tabla</summary>
+    <div class="tabla-scroll">
+      <table>
+        <thead><tr><th scope="col" class="izq">Métrica</th><th scope="col" class="izq">Familia</th><th scope="col" class="izq">Sentido</th><th scope="col">Línea base</th>{{range .Rondas}}<th scope="col">{{.}}</th>{{end}}<th scope="col">Meta</th><th scope="col" class="izq">Estado</th></tr></thead>
+        <tbody>
+          {{range .Filas}}<tr><th scope="row">{{.ID}}</th><td class="izq">{{.Familia}}</td><td class="izq">{{.Sentido}}</td><td>{{.Base}}</td>{{range .Celdas}}<td>{{.Valor}}{{with .Milestone}} <span class="ms">{{.}}</span>{{end}}</td>{{end}}<td>{{.Meta}}</td><td class="izq">{{.Estado}}</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+  </details>
+
+  <footer class="pie-pagina">Generado {{.Generado}} con <code>hz informe {{.Mision}}</code>. Los números salen de los sensores deterministas y del motor del harness, no del modelo.</footer>
+</main>

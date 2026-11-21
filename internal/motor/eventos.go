@@ -121,6 +121,67 @@ func (ap *aplicador) aplicar(ev evento) (bool, error) {
 			return true, fmt.Errorf("tarjeta.nueva: %w", err)
 		}
 		return true, aplicarTarjeta(ap.tx, t)
+	case "error.nuevo":
+		var e Error
+		if err := json.Unmarshal(ev.Datos, &e); err != nil {
+			return true, fmt.Errorf("error.nuevo: %w", err)
+		}
+		_, err := aplicarError(ap.tx, e)
+		return true, err
+	case "leccion.nueva":
+		var l Leccion
+		if err := json.Unmarshal(ev.Datos, &l); err != nil {
+			return true, fmt.Errorf("leccion.nueva: %w", err)
+		}
+		return true, aplicarLeccion(ap.tx, l)
+	case "leccion.estado":
+		var e eventoEstadoLeccion
+		if err := json.Unmarshal(ev.Datos, &e); err != nil {
+			return true, fmt.Errorf("leccion.estado: %w", err)
+		}
+		return true, aplicarEstadoLeccion(ap.tx, e)
+	case "eval.run":
+		var e eventoEval
+		if err := json.Unmarshal(ev.Datos, &e); err != nil {
+			return true, fmt.Errorf("eval.run: %w", err)
+		}
+		return true, aplicarEval(ap.tx, e)
+	case "verificador.medicion":
+		var e eventoMedicion
+		if err := json.Unmarshal(ev.Datos, &e); err != nil {
+			return true, fmt.Errorf("verificador.medicion: %w", err)
+		}
+		return true, aplicarMedicion(ap.tx, e)
+	case "mision.nueva":
+		var x Mision
+		if err := json.Unmarshal(ev.Datos, &x); err != nil {
+			return true, fmt.Errorf("mision.nueva: %w", err)
+		}
+		return true, aplicarMisionNueva(ap.tx, x)
+	case "mision.cerrar", "ronda.nueva", "ronda.cerrar", "gasto.nuevo", "aceptacion.nueva", "piso.nuevo":
+		var e eventoMision
+		if err := json.Unmarshal(ev.Datos, &e); err != nil {
+			return true, fmt.Errorf("%s: %w", ev.Evento, err)
+		}
+		return true, aplicarEventoMision(ap.tx, ev.Evento, e)
+	case "medicion.nueva":
+		var x Medicion
+		if err := json.Unmarshal(ev.Datos, &x); err != nil {
+			return true, fmt.Errorf("medicion.nueva: %w", err)
+		}
+		return true, aplicarMedicionRonda(ap.tx, x)
+	case "milestone.nuevo":
+		var x Milestone
+		if err := json.Unmarshal(ev.Datos, &x); err != nil {
+			return true, fmt.Errorf("milestone.nuevo: %w", err)
+		}
+		return true, aplicarMilestone(ap.tx, x)
+	case "redteam.resultado":
+		var e EventoRedteam
+		if err := json.Unmarshal(ev.Datos, &e); err != nil {
+			return true, fmt.Errorf("redteam.resultado: %w", err)
+		}
+		return true, aplicarRedteam(ap.tx, e)
 	default:
 		return false, nil
 	}

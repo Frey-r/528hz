@@ -1,7 +1,7 @@
 // Hooks del harness 528hz (contratos/plugin.md §3). Nunca lanza `hz`: lee .harness/cache/hooks.json (D-0034).
 import type { Register } from 'claude-code'
 
-import { estadoCorto, evaluarEntrada, firmas, lineaSupervisor, retener, separador, tareaDeDescripcion, Vigia, type Hooks } from './nucleo'
+import { estadoCorto, evaluarEntrada, firmas, frenoPresupuesto, lineaSupervisor, retener, separador, tareaDeDescripcion, Vigia, avisoLeccion, leccionesPara, relativizar, type Hooks } from './nucleo'
 
 type Estado = { mtime: number; hooks: Hooks; firmas: string[] }
 
@@ -62,6 +62,22 @@ const activo = (h?: Hooks) => h?.nivel === 'N2' || h?.nivel === 'N3'
 type Miembro = { id: string; tipo: string; descripcion: string; padre: string; visto: string }
 const equipo = new Map<string, Miembro>()
 const vigia = new Vigia(5)
+const avisadas = new Set<string>() // agente|lección ya avisada: una sola vez por agente
+
+/** Contexto justo a tiempo: las lecciones activas del archivo tocado que este agente aún no recibió. */
+function avisosPara(h: Hooks, raiz: string, agente: string | undefined, e: any): string[] {
+  const ruta = String(e.file_path ?? e.notebook_path ?? e.path ?? '')
+  const rel = ruta ? relativizar(ruta, raiz) : undefined
+  if (rel === undefined) return []
+  const avisos: string[] = []
+  for (const l of leccionesPara(h, rel)) {
+    const clave = `${agente ?? 'principal'}|${l.id}`
+    if (avisadas.has(clave)) continue
+    avisadas.add(clave)
+    avisos.push(avisoLeccion(l))
+  }
+  return avisos
+}
 
 async function registrarEnEquipo($: any, raiz: string, id: string): Promise<void> {
   const info = ((await $.agent.list()) as any[]).find(a => a.id === id)
@@ -93,6 +109,7 @@ export const register: Register = on => {
     estados.clear()
     equipo.clear()
     vigia.reiniciar()
+    avisadas.clear()
     const raiz = await buscarRaiz($, e.cwd)
     raices.set(separador(e.cwd), raiz)
     const est = raiz ? await estadoDe($, raiz) : undefined
@@ -106,7 +123,10 @@ export const register: Register = on => {
   // Cada subagente sabe a quién escalar desde su primera línea (D-0027).
   on('agent.spawn', async ($, e: any, next) => {
     const raiz = await raizActual($)
-    if (!raiz || !(await estadoDe($, raiz))) return next(e)
+    const est = raiz ? await estadoDe($, raiz) : undefined
+    if (!raiz || !est) return next(e)
+    const freno = frenoPresupuesto(est.hooks)
+    if (freno) return { deny: freno }
     return next({ ...e, prompt: `${lineaSupervisor(e.parentAgentId)}\n\n${e.prompt}` })
   })
 
@@ -117,7 +137,11 @@ export const register: Register = on => {
     if (!raiz || !est) return next(e)
     const agente: string | undefined = e.agentId
     if (agente && !equipo.has(agente)) await registrarEnEquipo($, raiz, agente)
-    if (!activo(est.hooks)) return next(e)
+    const avisos = avisosPara(est.hooks, raiz, agente, e)
+    if (!activo(est.hooks)) {
+      const r: any = await next(e)
+      return avisos.length && r?.deny === undefined ? { ...r, context: [...(r?.context ?? []), ...avisos] } : r
+    }
     const tarea = agente ? tareaDeDescripcion(equipo.get(agente)?.descripcion ?? '') : undefined
     const motivo = evaluarEntrada(est.hooks, String(e.tool), e, raiz, agente, tarea)
     if (motivo) {
@@ -129,7 +153,7 @@ export const register: Register = on => {
     if (est.firmas.length && r?.deny === undefined && typeof r?.text === 'string' && retener(r.text, est.firmas)) {
       return { deny: RETENIDO }
     }
-    return r
+    return avisos.length && r?.deny === undefined ? { ...r, context: [...(r?.context ?? []), ...avisos] } : r
   }).catch(($, e, next) => {
     // Fail-closed solo con el harness activo en N2+; sin harness, un fallo nunca bloquea (no romper la autonomía).
     if (!activo(ultimo?.hooks)) return next(e)

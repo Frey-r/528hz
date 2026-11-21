@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	"hz528/internal/motor"
 	"hz528/internal/proyecto"
 )
@@ -48,6 +50,16 @@ type Hooks struct {
 	ReglasDuras     []ReglaExportada    `json:"reglas_duras"`
 	Secretos        []string            `json:"secretos"`
 	Arriendos       []ArriendoExportado `json:"arriendos"`
+	Lecciones       []LeccionExportada  `json:"lecciones"`
+	Misiones        []MisionExportada   `json:"misiones"`
+}
+
+// LeccionExportada es una lección activa que el hook ofrece justo a tiempo dentro de su ámbito.
+type LeccionExportada struct {
+	ID          string `json:"id"`
+	Skill       string `json:"skill"`
+	Ambito      string `json:"ambito"`
+	Descripcion string `json:"descripcion"`
 }
 
 // ArriendoExportado es un arriendo vigente que el hook hace respetar.
@@ -62,7 +74,7 @@ type ArriendoExportado struct {
 func Construir(m *motor.Motor, raiz string) (Hooks, error) {
 	h := Hooks{Version: 2, Generado: time.Now().Format(time.RFC3339), Nivel: "N1",
 		TareasActivas: []Activa{}, TestsBloqueados: []string{}, Protegidos: proyecto.Protegidos,
-		ReglasDuras: []ReglaExportada{}, Secretos: []string{}, Arriendos: []ArriendoExportado{}}
+		ReglasDuras: []ReglaExportada{}, Secretos: []string{}, Arriendos: []ArriendoExportado{}, Lecciones: []LeccionExportada{}, Misiones: []MisionExportada{}}
 	perfil, err := proyecto.Cargar(raiz)
 	switch {
 	case err == nil:
@@ -107,6 +119,16 @@ func Construir(m *motor.Motor, raiz string) (Hooks, error) {
 	}
 	for _, a := range arriendos {
 		h.Arriendos = append(h.Arriendos, ArriendoExportado{Ruta: a.Ruta, Agente: a.Agente, Tarea: a.Tarea, Expira: a.Expira.Format(time.RFC3339)})
+	}
+	lecciones, err := m.LeccionesActivas()
+	if err != nil {
+		return h, err
+	}
+	for _, l := range lecciones {
+		h.Lecciones = append(h.Lecciones, LeccionExportada{ID: l.ID, Skill: l.Skill, Ambito: l.Ambito, Descripcion: l.Descripcion})
+	}
+	if h.Misiones, err = misiones(m, raiz); err != nil {
+		return h, err
 	}
 	total, err := m.ContarDecisiones()
 	if err != nil {
@@ -252,4 +274,45 @@ func vacioSiNil(xs []string) []string {
 		return []string{}
 	}
 	return xs
+}
+
+// MisionExportada es el estado de presupuesto de una misión activa: el plugin frena los lanzamientos sin presupuesto.
+type MisionExportada struct {
+	ID             string  `json:"id"`
+	Gasto          float64 `json:"gasto"`
+	UsdMax         float64 `json:"usd_max"`
+	SinPresupuesto bool    `json:"sin_presupuesto"`
+}
+
+// misiones exporta el presupuesto de las misiones activas. Lee presupuesto.usd_max directo de mision.yaml
+// (el paquete mision depende de tdd, que depende de exportar: importarlo haría un ciclo).
+func misiones(m *motor.Motor, raiz string) ([]MisionExportada, error) {
+	todas, err := m.Misiones()
+	if err != nil {
+		return nil, err
+	}
+	out := []MisionExportada{}
+	for _, x := range todas {
+		if x.Estado != "activa" {
+			continue
+		}
+		e := MisionExportada{ID: x.ID}
+		if e.Gasto, err = m.Gasto(x.ID); err != nil {
+			return nil, err
+		}
+		var def struct {
+			Presupuesto struct {
+				UsdMax float64 `yaml:"usd_max"`
+			} `yaml:"presupuesto"`
+		}
+		if b, err := os.ReadFile(filepath.Join(raiz, ".harness", "misiones", x.ID, "mision.yaml")); err == nil {
+			if err := yaml.Unmarshal(b, &def); err != nil {
+				return nil, fmt.Errorf("mision.yaml de %s: %w", x.ID, err)
+			}
+		}
+		e.UsdMax = def.Presupuesto.UsdMax
+		e.SinPresupuesto = e.UsdMax > 0 && e.Gasto >= e.UsdMax
+		out = append(out, e)
+	}
+	return out, nil
 }

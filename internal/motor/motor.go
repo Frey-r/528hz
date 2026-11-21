@@ -6,7 +6,9 @@ package motor
 
 import (
 	"bufio"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -55,6 +57,11 @@ func Abrir(raiz string) (*Motor, error) {
 	}
 	db.SetMaxOpenConns(1) // una conexión por proceso: los escritores se serializan en SQLite
 	m := &Motor{db: db, raiz: raiz}
+	// Un índice creado con otro DDL se descarta y se reconstruye desde los logs (es reconstruible por diseño).
+	if err := m.descartarSiEsquemaViejo(); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	if _, err := db.Exec(hz528.SchemaSQL); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("aplicar esquema: %w", err)
@@ -135,7 +142,9 @@ func (m *Motor) Reindex() (Resumen, error) {
 		return res, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	for _, t := range []string{"decisiones", "decisiones_fts", "tareas_tdd", "arriendos", "traspasos", "meta"} {
+	for _, t := range []string{"decisiones", "decisiones_fts", "tareas_tdd", "arriendos", "traspasos", "errores", "clases_error",
+		"lecciones", "evals", "eval_runs", "verificadores", "regla_eventos", "misiones", "rondas", "mediciones", "milestones",
+		"gastos", "aceptaciones", "pisos", "meta"} {
 		if _, err := tx.Exec("DELETE FROM " + t); err != nil {
 			return res, err
 		}
@@ -154,7 +163,7 @@ func (m *Motor) Reindex() (Resumen, error) {
 			return res, err
 		}
 	}
-	if _, err := tx.Exec(`INSERT INTO meta(clave, valor) VALUES ('indexado', ?)`, time.Now().Format(time.RFC3339)); err != nil {
+	if _, err := tx.Exec(`INSERT INTO meta(clave, valor) VALUES ('indexado', ?), ('esquema', ?)`, time.Now().Format(time.RFC3339), versionEsquema); err != nil {
 		return res, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -233,4 +242,46 @@ func (m *Motor) escribir(archivo, nombreEvento string, aplicarFn func(tx *sql.Tx
 		return err
 	}
 	return tx.Commit()
+}
+
+// versionEsquema identifica el DDL embebido: cualquier cambio en schema/harness.sql invalida los índices viejos.
+var versionEsquema = func() string {
+	h := sha256.Sum256([]byte(hz528.SchemaSQL))
+	return hex.EncodeToString(h[:6])
+}()
+
+// descartarSiEsquemaViejo borra todas las tablas si el índice fue creado con otro DDL; Abrir lo reconstruye.
+func (m *Motor) descartarSiEsquemaViejo() error {
+	var hay int
+	if err := m.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'meta'`).Scan(&hay); err != nil || hay == 0 {
+		return err
+	}
+	var version string
+	err := m.db.QueryRow(`SELECT valor FROM meta WHERE clave = 'esquema'`).Scan(&version)
+	if err == nil && version == versionEsquema {
+		return nil
+	}
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	filas, err := m.db.Query(`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+		ORDER BY CASE WHEN sql LIKE 'CREATE VIRTUAL%' THEN 0 ELSE 1 END`)
+	if err != nil {
+		return err
+	}
+	var tablas []string
+	for filas.Next() {
+		var t string
+		if err := filas.Scan(&t); err != nil {
+			filas.Close()
+			return err
+		}
+		tablas = append(tablas, t)
+	}
+	filas.Close()
+	for _, t := range tablas {
+		// las tablas sombra de FTS5 desaparecen con su tabla virtual: un error aquí es esperable
+		_, _ = m.db.Exec(`DROP TABLE IF EXISTS "` + t + `"`)
+	}
+	return nil
 }

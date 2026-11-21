@@ -104,6 +104,33 @@ func TestExportarIncluyeSoloArriendosVigentes(t *testing.T) {
 	}
 }
 
+func TestExportarIncluyeSoloLeccionesActivasConSuAmbito(t *testing.T) {
+	raiz := t.TempDir()
+	m, err := motor.Abrir(raiz)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Cerrar()
+	if _, _, err := m.NuevoError(motor.Error{Que: "x", Fuente: "humano", Severidad: "menor", Causa: "otra", Clase: "c1", Ambito: "app/**"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, skill := range []string{"hz-leccion-a", "hz-leccion-b"} {
+		if _, err := m.NuevaLeccion(motor.Leccion{Clase: "c1", Skill: skill, Descripcion: "d"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := m.FijarEstadoLeccion("L-0001", "activa", "pasó"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Escribir(m, raiz); err != nil {
+		t.Fatal(err)
+	}
+	h := leerHooks(t, raiz)
+	if len(h.Lecciones) != 1 || h.Lecciones[0].Skill != "hz-leccion-a" || h.Lecciones[0].Ambito != "app/**" {
+		t.Fatalf("solo la lección activa, con su ámbito: %+v", h.Lecciones)
+	}
+}
+
 func TestExportarSinPerfilEsN1SinReglas(t *testing.T) {
 	raiz := t.TempDir()
 	m, err := motor.Abrir(raiz)
@@ -117,5 +144,48 @@ func TestExportarSinPerfilEsN1SinReglas(t *testing.T) {
 	h := leerHooks(t, raiz)
 	if h.Nivel != "N1" || len(h.ReglasDuras) != 0 || len(h.Secretos) != 0 {
 		t.Fatalf("sin perfil se exporta N1 sin enforcement: %+v", h)
+	}
+}
+
+func TestExportarMisionesActivasConPresupuesto(t *testing.T) {
+	raiz := t.TempDir()
+	escribir(t, raiz, ".harness/harness.yaml", "version: 1\nenabled: true\nnivel: N3\nmodo: mejora\n")
+	escribir(t, raiz, ".harness/misiones/m1/mision.yaml", "id: m1\nmodo: mejora\npresupuesto: {usd_max: 1}\n")
+	escribir(t, raiz, ".harness/misiones/m2/mision.yaml", "id: m2\nmodo: mejora\npresupuesto: {usd_max: 5}\n")
+	escribir(t, raiz, ".harness/misiones/m3/mision.yaml", "id: m3\nmodo: mejora\npresupuesto: {usd_max: 1}\n")
+	m, err := motor.Abrir(raiz)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Cerrar()
+	for _, id := range []string{"m1", "m2", "m3"} {
+		if err := m.NuevaMision(motor.Mision{ID: id, Modo: "mejora"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for id, usd := range map[string]float64{"m1": 1.5, "m2": 1, "m3": 3} {
+		if err := m.RegistrarGasto(id, usd, "x"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := m.CerrarMision("m3"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Escribir(m, raiz); err != nil {
+		t.Fatal(err)
+	}
+	h := leerHooks(t, raiz)
+	if len(h.Misiones) != 2 {
+		t.Fatalf("solo las misiones activas se exportan (m3 está cerrada): %+v", h.Misiones)
+	}
+	por := map[string]MisionExportada{}
+	for _, x := range h.Misiones {
+		por[x.ID] = x
+	}
+	if x := por["m1"]; !x.SinPresupuesto || x.Gasto != 1.5 || x.UsdMax != 1 {
+		t.Fatalf("m1 gastó 1.5 de 1: debe quedar sin presupuesto: %+v", x)
+	}
+	if x := por["m2"]; x.SinPresupuesto || x.UsdMax != 5 {
+		t.Fatalf("m2 gastó 1 de 5: tiene presupuesto: %+v", x)
 	}
 }
