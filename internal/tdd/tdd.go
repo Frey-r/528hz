@@ -291,6 +291,64 @@ func (q Maquina) avanzar(id, cmd, nuevo string, desde ...string) error {
 	return ExportarHooks(q.M, q.Raiz)
 }
 
+// superable: solo una tarea que pasó por VERDE puede superarse (no sirve para saltarse un ROJO).
+var superable = map[string]bool{"verde": true, "refactor": true, "verificada": true}
+
+// supera: la tarea que reemplaza tiene que estar en VERDE o después (una superada se rechaza aparte).
+var supera = map[string]bool{"verde": true, "refactor": true, "verificada": true, "cerrada": true}
+
+// Superar deja constancia de que la tarea `id` quedó reemplazada por `por`, con la decisión registrada `decision`.
+// No toca ni re-bloquea tests: es el caso de un golden que otra tarea regeneró con aprobación (RG-2.3).
+func (q Maquina) Superar(id, por, decision, motivo, quien string) error {
+	id, por, decision = strings.ToUpper(strings.TrimSpace(id)), strings.ToUpper(strings.TrimSpace(por)), strings.ToUpper(strings.TrimSpace(decision))
+	t, err := q.M.Tarea(id)
+	if errors.Is(err, motor.ErrNoExiste) {
+		return verificacion("la tarea %s no existe; revisa el id con `hz tdd estado`", id)
+	}
+	if err != nil {
+		return err
+	}
+	if s := t.Superacion; t.Estado == "superada" && s != nil {
+		return verificacion("la tarea %s ya fue superada por %s (%s) el %s; no hay nada que hacer", id, s.Por, s.Decision, s.En)
+	}
+	if !superable[t.Estado] {
+		return verificacion("la tarea %s está en %s: superar exige que haya pasado por VERDE (no sirve para saltarse un ROJO); termina su ciclo con `hz tdd verde %s`",
+			id, strings.ToUpper(t.Estado), id)
+	}
+	if por == id {
+		return verificacion("una tarea no puede superarse a sí misma: --por debe ser la tarea que la reemplaza")
+	}
+	tm, err := q.M.Tarea(por)
+	if errors.Is(err, motor.ErrNoExiste) {
+		return verificacion("la tarea que supera, %s, no existe; regístrala con `hz tdd contrato %s` y llévala a VERDE", por, por)
+	}
+	if err != nil {
+		return err
+	}
+	if tm.Estado == "superada" && tm.Superacion != nil {
+		return verificacion("la tarea %s también fue superada; usa --por %s", por, tm.Superacion.Por)
+	}
+	if !supera[tm.Estado] {
+		return verificacion("la tarea que supera, %s, está en %s; tiene que estar en VERDE o después: `hz tdd verde %s`", por, strings.ToUpper(tm.Estado), por)
+	}
+	d, err := q.M.VerDecision(decision)
+	if errors.Is(err, motor.ErrNoExiste) {
+		return verificacion("la decisión %s no existe; regístrala antes con `hz decision nueva --que … --por-que … --decidio humano|agente_aprobado`", decision)
+	}
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(motivo) == "" {
+		motivo = d.Que
+	}
+	t.Superacion = &motor.Superacion{Por: por, Decision: d.ID, Decidio: d.Decidio, Motivo: motivo, Quien: quien, En: ahora(), EstadoPrevio: t.Estado}
+	t.Estado = "superada"
+	if err := q.M.RegistrarTarea("tdd.superada", t); err != nil {
+		return err
+	}
+	return ExportarHooks(q.M, q.Raiz)
+}
+
 // ExportarHooks regenera .harness/cache/hooks.json v2 (contratos/plugin.md); vive en el paquete exportar.
 func ExportarHooks(m *motor.Motor, raiz string) error { return exportar.Escribir(m, raiz) }
 

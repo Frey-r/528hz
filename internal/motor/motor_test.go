@@ -231,6 +231,30 @@ func TestConcurrenciaEntreProcesosAsignaIDsUnicos(t *testing.T) {
 	}
 }
 
+func TestTareaSuperadaPersisteYSobreviveReindex(t *testing.T) {
+	raiz := proyectoVacio(t)
+	m, err := Abrir(raiz)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ta := Tarea{ID: "T-7", Titulo: "golden", Estado: "superada", VerdeEn: "2026-11-22T10:00:00Z",
+		TestsBloqueados: []TestBloqueado{{Ruta: "golden/sprites.json", SHA256: "viejo"}},
+		Superacion: &Superacion{Por: "T-11", Decision: "D-0042", Decidio: "humano", Motivo: "golden regenerado",
+			Quien: "sesion-1", En: "2026-11-22T11:00:00Z", EstadoPrevio: "verde"}}
+	if err := m.RegistrarTarea("tdd.superada", ta); err != nil {
+		t.Fatalf("tdd.superada es un evento TDD válido: %v", err)
+	}
+	_ = m.Cerrar()
+	_ = os.Remove(filepath.Join(raiz, ".harness", "harness.db"))
+	got, err := abrir(t, raiz).Tarea("T-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Estado != "superada" || got.Superacion == nil || *got.Superacion != *ta.Superacion || got.TestsBloqueados[0].SHA256 != "viejo" {
+		t.Fatalf("la superación debe reconstruirse completa desde tdd.jsonl: %+v", got)
+	}
+}
+
 func TestTareasPersistenYSobrevivenReindex(t *testing.T) {
 	raiz := proyectoVacio(t)
 	m, err := Abrir(raiz)

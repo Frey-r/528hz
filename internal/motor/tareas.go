@@ -22,6 +22,17 @@ type Evidencia struct {
 	En        string `json:"en"`
 }
 
+// Superacion deja constancia de que otra tarea reemplazó a esta (`hz tdd superar`): quién, cuándo, por qué y cuál.
+type Superacion struct {
+	Por          string `json:"por"`
+	Decision     string `json:"decision"`
+	Decidio      string `json:"decidio"`
+	Motivo       string `json:"motivo"`
+	Quien        string `json:"quien"`
+	En           string `json:"en"`
+	EstadoPrevio string `json:"estado_previo"`
+}
+
 // Tarea del ciclo CONTRATO → ROJO → VERDE → REFACTOR. Cada evento guarda la foto completa.
 type Tarea struct {
 	ID              string          `json:"id"`
@@ -37,9 +48,10 @@ type Tarea struct {
 	Celula          string          `json:"celula"`
 	OwnerAgenteID   string          `json:"owner_agente_id"`
 	BloqueadaPor    []string        `json:"bloqueada_por"`
+	Superacion      *Superacion     `json:"superacion,omitempty"`
 }
 
-var eventosTDD = map[string]bool{"tdd.contrato": true, "tdd.rojo": true, "tdd.verde": true, "tdd.refactor": true}
+var eventosTDD = map[string]bool{"tdd.contrato": true, "tdd.rojo": true, "tdd.verde": true, "tdd.refactor": true, "tdd.superada": true}
 
 func guardarTarea(st *sql.Stmt, t Tarea) error {
 	if t.TestsBloqueados == nil {
@@ -51,9 +63,13 @@ func guardarTarea(st *sql.Stmt, t Tarea) error {
 	if t.BloqueadaPor == nil {
 		t.BloqueadaPor = []string{}
 	}
+	var superacion any // NULL salvo en una tarea superada
+	if t.Superacion != nil {
+		superacion = jsonTexto(t.Superacion)
+	}
 	_, err := st.Exec(t.ID, nulo(t.MisionID), t.Titulo, t.Estado, nulo(t.ContratoRuta), nulo(t.ContratoOKEn),
 		jsonTexto(t.TestsBloqueados), nulo(t.RojoEn), nulo(t.VerdeEn), jsonTexto(t.Evidencia),
-		nulo(t.Celula), nulo(t.OwnerAgenteID), jsonTexto(t.BloqueadaPor))
+		nulo(t.Celula), nulo(t.OwnerAgenteID), jsonTexto(t.BloqueadaPor), superacion)
 	if err != nil {
 		return fmt.Errorf("tarea %s: %w", t.ID, err)
 	}
@@ -81,7 +97,7 @@ func (m *Motor) RegistrarTarea(evento string, t Tarea) error {
 
 const columnasTarea = `id, COALESCE(mision_id,''), titulo, estado, COALESCE(contrato_ruta,''), COALESCE(contrato_ok_en,''),
 	COALESCE(rojo_en,''), COALESCE(verde_en,''), tests_bloqueados, evidencia, COALESCE(celula,''),
-	COALESCE(owner_agente_id,''), bloqueada_por`
+	COALESCE(owner_agente_id,''), bloqueada_por, COALESCE(superacion,'')`
 
 // Tarea devuelve una tarea por ID.
 func (m *Motor) Tarea(id string) (Tarea, error) {
@@ -109,14 +125,20 @@ func (m *Motor) consultarTareas(sufijo string, args ...any) ([]Tarea, error) {
 	var ts []Tarea
 	for filas.Next() {
 		var t Tarea
-		var tb, ev, bp string
+		var tb, ev, bp, sup string
 		if err := filas.Scan(&t.ID, &t.MisionID, &t.Titulo, &t.Estado, &t.ContratoRuta, &t.ContratoOKEn,
-			&t.RojoEn, &t.VerdeEn, &tb, &ev, &t.Celula, &t.OwnerAgenteID, &bp); err != nil {
+			&t.RojoEn, &t.VerdeEn, &tb, &ev, &t.Celula, &t.OwnerAgenteID, &bp, &sup); err != nil {
 			return nil, err
 		}
 		if err := errors.Join(json.Unmarshal([]byte(tb), &t.TestsBloqueados), json.Unmarshal([]byte(ev), &t.Evidencia),
 			json.Unmarshal([]byte(bp), &t.BloqueadaPor)); err != nil {
 			return nil, fmt.Errorf("tarea %s: %w", t.ID, err)
+		}
+		if sup != "" {
+			t.Superacion = &Superacion{}
+			if err := json.Unmarshal([]byte(sup), t.Superacion); err != nil {
+				return nil, fmt.Errorf("tarea %s: superación: %w", t.ID, err)
+			}
 		}
 		ts = append(ts, t)
 	}

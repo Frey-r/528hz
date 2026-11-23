@@ -57,13 +57,13 @@ const (
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	sqlFTS   = `INSERT INTO decisiones_fts (id, que, por_que, etiquetas, alternativas) VALUES (?, ?, ?, ?, ?)`
 	sqlTarea = `INSERT INTO tareas_tdd (id, mision_id, titulo, estado, contrato_ruta, contrato_ok_en,
-		tests_bloqueados, rojo_en, verde_en, evidencia, celula, owner_agente_id, bloqueada_por)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		tests_bloqueados, rojo_en, verde_en, evidencia, celula, owner_agente_id, bloqueada_por, superacion)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET mision_id = excluded.mision_id, titulo = excluded.titulo,
 		estado = excluded.estado, contrato_ruta = excluded.contrato_ruta, contrato_ok_en = excluded.contrato_ok_en,
 		tests_bloqueados = excluded.tests_bloqueados, rojo_en = excluded.rojo_en, verde_en = excluded.verde_en,
 		evidencia = excluded.evidencia, celula = excluded.celula, owner_agente_id = excluded.owner_agente_id,
-		bloqueada_por = excluded.bloqueada_por`
+		bloqueada_por = excluded.bloqueada_por, superacion = excluded.superacion`
 )
 
 func prepararAplicador(tx *sql.Tx) (*aplicador, error) {
@@ -100,7 +100,7 @@ func (ap *aplicador) aplicar(ev evento) (bool, error) {
 			return true, fmt.Errorf("decision.nueva: %w", err)
 		}
 		return true, insertarDecision(ap.decision, ap.fts, d)
-	case "tdd.contrato", "tdd.rojo", "tdd.verde", "tdd.refactor":
+	case "tdd.contrato", "tdd.rojo", "tdd.verde", "tdd.refactor", "tdd.superada":
 		var t Tarea
 		if err := json.Unmarshal(ev.Datos, &t); err != nil {
 			return true, fmt.Errorf("%s: %w", ev.Evento, err)

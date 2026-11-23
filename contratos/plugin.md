@@ -13,6 +13,7 @@
   "resumen": ["≤15 líneas para el puntero de inicio de sesión"],
   "tareas_activas": [{ "id": "T-1", "estado": "rojo", "tests_bloqueados": ["tests/x_test.go"] }],
   "tests_bloqueados": ["tests/x_test.go"],
+  "tareas_superadas": [{ "id": "T-7", "por": "T-11", "decision": "D-0042" }],
   "protegidos": [".harness/reglas.yaml", ".harness/log/**", ".claude/settings.json", ".claude/settings.local.json", ".githooks/**"],
   "reglas_duras": [{ "id": "RD-1", "orden": "…", "remediacion": "…",
                      "herramientas": ["mcp__x__escribir"], "rutas": [".env"], "bash": ["regex"] }],
@@ -20,6 +21,7 @@
 }
 ```
 Las rutas son relativas a la raíz y usan `/`. Las globs admiten `*` (un segmento) y `**` (varios).
+`tareas_superadas` es informativo y aditivo (`hz tdd superar`): esas tareas no están en `tareas_activas` y sus tests no están en `tests_bloqueados`, salvo que otra tarea activa los bloquee.
 
 ## 2. CLI (`contratos/cli.md` → se agrega)
 - **`hz exportar`**: regenera `hooks.json` v2. Lo llaman también `tdd …`, `activar` y `regla …`.

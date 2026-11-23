@@ -52,6 +52,9 @@ func (c contexto) tablero(args []string) int {
 		if len(t.BloqueadaPor) > 0 {
 			linea += " · depende de " + strings.Join(t.BloqueadaPor, ",")
 		}
+		if s := superadaPor(t); s != "" {
+			linea += " · " + s
+		}
 		fmt.Fprintln(c.out, linea)
 	}
 	return ok
@@ -197,10 +200,14 @@ func (c contexto) salida(args []string) int {
 	if !valido {
 		return usoInvalido
 	}
-	if err := orquesta.Salida(c.m, c.raiz, rol, tarea); err != nil {
+	nota, err := orquesta.SalidaConNota(c.m, c.raiz, rol, tarea)
+	if err != nil {
 		return c.codigo(err)
 	}
-	fmt.Fprintf(c.out, "%s puede entregar %s\n", rol, tarea)
+	if nota != "" {
+		nota = " · " + nota
+	}
+	fmt.Fprintf(c.out, "%s puede entregar %s%s\n", rol, tarea, nota)
 	return ok
 }
 

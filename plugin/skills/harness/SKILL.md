@@ -19,6 +19,10 @@ description: Procedimiento del harness 528hz. Úsala en todo proyecto con .harne
 
 Si `hz` o un hook rechazan algo, el mensaje trae la remediación: síguela. Nunca edites un test bloqueado para lograr verde; si el test está mal, registra la decisión y pide aprobación.
 
+- **No bloquees fixtures regenerables** (golden, snapshots): bloquea el código del test; cada regeneración del fixture exige una decisión con su aprobación.
+- **Tarea superada:** si una tarea posterior (ya en VERDE) invalida a propósito los tests bloqueados de otra (por ejemplo, un golden regenerado tras una aprobación), registra la decisión y cierra la vieja con `hz tdd superar T-n --por T-m --decision D-NNNN [--motivo "…"]`. No sirve para saltarse un ROJO: T-n tiene que haber pasado por VERDE.
+- **Mutación:** `hz mutar` guarda un respaldo por archivo con candado; puedes medir archivos distintos en paralelo, nunca el mismo dos veces a la vez.
+
 ## Decisiones (RG-3)
 Registra con `hz decision nueva --que "…" --por-que "…" --decidio agente [--alternativa "opción|motivo del descarte"]… [--alcance x]… [--etiqueta y]…` cuando:
 - eliges entre alternativas que alguien podría reabrir (arquitectura, dependencias, estructura);
