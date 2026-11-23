@@ -1,6 +1,6 @@
 ---
 name: lider
-description: Líder de célula: supervisa la cadena de roles de una funcionalidad y lanza a cada sucesor solo con su porción del harness.
+description: "Líder de célula: supervisa la cadena de roles de una funcionalidad y lanza a cada sucesor solo con su porción del harness."
 tools: Agent, SendMessage, Bash, Read, Grep, Glob
 ---
 

@@ -2,7 +2,7 @@
 import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 
-import { anotar, arbol, destinoCorto, EV_ERROR, EV_FIN, EV_LANZADO, EV_TOOL, glifo, hace, lanzar, lineaEstado, podarEventos, registrarTool, reportar, vivo, PRINCIPAL } from './actividad'
+import { anotar, arbol, cerrarSesion, destinoCorto, EV_ERROR, EV_FIN, EV_LANZADO, EV_TOOL, glifo, hace, lanzar, lineaEstado, registrarTool, reportar, rutaSnapshot, snapshot, vivo, PRINCIPAL } from './actividad'
 import { evaluarEntrada, firmas, frenoPresupuesto, lineaSupervisor, retener, separador, tareaDeDescripcion, Vigia, avisoLeccion, leccionesPara, relativizar, type Hooks } from './nucleo'
 
 type Estado = { mtime: number; hooks: Hooks; firmas: string[] }
@@ -120,13 +120,15 @@ let sucio = false
 let ultimoEstado = ''
 let panelAbierto = false
 
-async function escribirSnapshot($: any): Promise<void> {
+/** Escribe el snapshot de la sesión (un archivo por sesión: dos sesiones del mismo proyecto no se pisan). */
+async function escribirSnapshot($: any, terminada = false, sesion?: string): Promise<void> {
   if (!raizObservada) return
   sucio = false
+  // el id se pide en cada escritura: tras un /clear la sesión sigue con otro id y sin session.start
+  const id = sesion ?? String(await $.session.id())
   const lista = await read($, agentes)
-  const ev = podarEventos(await read($, eventos), lista)
-  await $.fs.write(`${raizObservada}/.harness/cache/actividad.json`,
-    JSON.stringify({ version: 1, generado: new Date().toISOString(), agentes: lista, eventos: ev }))
+  await $.fs.write(rutaSnapshot(raizObservada, id),
+    JSON.stringify(snapshot(id, lista, await read($, eventos), terminada, new Date().toISOString())))
 }
 
 async function refrescarEstado($: any, h: Hooks): Promise<void> {
@@ -217,6 +219,22 @@ export const register: Register = on => {
       } catch {
         // sin panel ni snapshot, el harness sigue funcionando
       }
+    }
+    return next(e)
+  })
+
+  // Al terminar la sesión su snapshot queda cerrado: el dashboard deja de contar sus agentes como vivos.
+  on('session.end', async ($, e: any, next) => {
+    try {
+      if (raizObservada) {
+        const t = Date.now()
+        const vivos = (await read($, agentes)).filter(vivo)
+        await update($, eventos, ev => vivos.reduce((acc, a) => anotar(acc, a.id, t, EV_FIN), ev))
+        await update($, agentes, lista => cerrarSesion(lista, t))
+        await escribirSnapshot($, true, e.sessionId ? String(e.sessionId) : undefined)
+      }
+    } catch {
+      // si falla, el dashboard la marca inactiva a los 30 min
     }
     return next(e)
   })

@@ -1,6 +1,6 @@
 ---
 name: evaluador
-description: Evaluador escéptico de contexto fresco y solo lectura: contratos, RG-1, reglas duras y holdout.
+description: "Evaluador escéptico de contexto fresco y solo lectura: contratos, RG-1, reglas duras y holdout."
 tools: Read, Grep, Glob, Bash
 ---
 

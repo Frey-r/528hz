@@ -77,7 +77,8 @@ Solo con harness en el proyecto. Un fallo de observabilidad **nunca** deniega un
   - `tool.call`: `activo`; suma `tools` y, si el resultado es error o denegación, `errores` y `seguidos` (un éxito los vuelve a 0). `ultima` = herramienta + destino corto (ruta relativa o comando recortado a 40 caracteres).
   - `agent.report`: `terminado` (completed), `fallido` (failed) o `detenido` (stopped).
   - Se conservan hasta 50 filas terminadas (las más recientes); las vivas, todas.
-- **Snapshot** `.harness/cache/actividad.json` `{ version: 1, generado, agentes: [...] }`: se escribe al lanzar y al terminar un agente y, entre medio, como máximo una vez cada 2 s (RG-1). Lo leen `hz panel` y el dashboard.
+- **Snapshot por sesión (3.8, D-0053)** `.harness/cache/actividad/<sessionId>.json` `{ version: 2, sesion, generado, terminada, agentes: [...], eventos: {...} }`, con `sessionId = $.session.id()`: se escribe al lanzar y al terminar un agente y, entre medio, como máximo una vez cada 2 s (RG-1). Cada sesión escribe su propio archivo, así que dos sesiones en el mismo proyecto no se pisan. Lo leen `hz panel` y el dashboard central.
+- **`session.end`** (3.8): la fila `principal` pasa a `terminado`, los subagentes vivos a `detenido`, y se escribe el snapshot final con `terminada: true`. Si falla, el dashboard marca la sesión como inactiva a los 30 min.
 - **Status line** (`$.ui.status`, solo cuando cambia): `hz · N2 · T-1 ROJO · 3 agentes · 1 con errores` (≤80 caracteres; las partes vacías no aparecen).
 - **Pane `hz-panel`**: el comando `/hz-panel` lo abre; se abre solo al lanzarse el primer subagente, donde la terminal tiene lugar.
   - cabecera: proyecto · nivel · modo, y cada misión activa con su barra de presupuesto;

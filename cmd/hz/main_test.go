@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -15,8 +16,23 @@ import (
 	"testing"
 	"time"
 
+	"hz528/internal/dashboard"
 	"hz528/internal/mutar"
+	"hz528/internal/registro"
 )
+
+// TestMain aísla el hogar de hz: activar y puntero conectan proyectos al registro de usuario, y los tests
+// nunca deben tocar el del humano.
+func TestMain(m *testing.M) {
+	hogar, err := os.MkdirTemp("", "hz-hogar-")
+	if err != nil {
+		panic(err)
+	}
+	os.Setenv("HZ_HOGAR", hogar)
+	code := m.Run()
+	os.RemoveAll(hogar)
+	os.Exit(code)
+}
 
 func hz(t *testing.T, args ...string) (int, string, string) {
 	t.Helper()
@@ -316,12 +332,21 @@ func TestPanelJuntaActividadYMotor(t *testing.T) {
 		t.Fatalf("contrato: %s", e)
 	}
 	ahora := time.Now().UnixMilli()
-	actividad := fmt.Sprintf(`{"version":1,"generado":"2026-11-21T10:00:00Z","agentes":[
+	generado := time.Now().Format(time.RFC3339)
+	actividad := fmt.Sprintf(`{"version":2,"sesion":"s1abcdef-99","generado":"%[2]s","terminada":false,"agentes":[
  {"id":"principal","rol":"director","descripcion":"","padre":"","tarea":"","estado":"activo","tools":12,"errores":0,"seguidos":0,"ultima":"Edit a.go","desde":%[1]d,"visto":%[1]d},
  {"id":"L1","rol":"lider","descripcion":"lider pagos","padre":"principal","tarea":"","estado":"activo","tools":4,"errores":0,"seguidos":0,"ultima":"Agent","desde":%[1]d,"visto":%[1]d},
  {"id":"r1","rol":"tester","descripcion":"tester T-1","padre":"L1","tarea":"T-1","estado":"terminado","tools":9,"errores":1,"seguidos":0,"ultima":"Bash go test","desde":%[1]d,"visto":%[1]d},
- {"id":"r2","rol":"implementador","descripcion":"implementador T-1","padre":"L1","tarea":"T-1","estado":"activo","tools":3,"errores":3,"seguidos":3,"ultima":"Bash go test","desde":%[1]d,"visto":%[1]d}]}`, ahora)
-	if err := os.WriteFile(filepath.Join(raiz, ".harness", "cache", "actividad.json"), []byte(actividad), 0o644); err != nil {
+ {"id":"r2","rol":"implementador","descripcion":"implementador T-1","padre":"L1","tarea":"T-1","estado":"activo","tools":3,"errores":3,"seguidos":3,"ultima":"Bash go test","desde":%[1]d,"visto":%[1]d}]}`, ahora, generado)
+	sesiones := filepath.Join(raiz, ".harness", "cache", "actividad")
+	if err := os.MkdirAll(sesiones, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sesiones, "s1abcdef-99.json"), []byte(actividad), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cerrada := `{"version":2,"sesion":"zz000000","generado":"` + generado + `","terminada":true,"agentes":[{"id":"principal","rol":"director","estado":"terminado","desde":1,"visto":1}]}`
+	if err := os.WriteFile(filepath.Join(sesiones, "zz000000.json"), []byte(cerrada), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	code, out, e := hz(t, "--raiz", raiz, "panel")
@@ -340,6 +365,9 @@ func TestPanelJuntaActividadYMotor(t *testing.T) {
 	if indice("T-1 CONTRATO") < 0 || indice("director") < 0 || indice("3 seguidos") < 0 || len(lineas) > 40 {
 		t.Fatalf("el panel muestra tareas, el árbol y los errores seguidos en ≤40 líneas:\n%s", out)
 	}
+	if !(indice("sesión s1abcdef · activa") >= 0 && indice("sesión s1abcdef · activa") < indice("director") && indice("director") < indice("sesión zz000000 · terminada")) {
+		t.Fatalf("una línea por sesión, las activas primero y su árbol debajo:\n%s", out)
+	}
 	if !(indice("director") < indice("lider") && indice("lider") < indice("implementador") && indice("implementador") < indice("tester")) {
 		t.Fatalf("árbol por supervisor con los vivos primero (implementador vivo antes que tester terminado):\n%s", out)
 	}
@@ -349,23 +377,94 @@ func TestPanelJuntaActividadYMotor(t *testing.T) {
 	code, out, _ = hz(t, "--raiz", raiz, "panel", "--json")
 	var p struct {
 		Agentes  []map[string]any `json:"agentes"`
+		Sesiones []map[string]any `json:"sesiones"`
 		Tareas   []map[string]any `json:"tareas"`
 		Misiones []map[string]any `json:"misiones"`
 	}
-	if code != 0 || json.Unmarshal([]byte(out), &p) != nil || len(p.Agentes) != 4 || len(p.Tareas) != 1 || p.Misiones == nil {
-		t.Fatalf("panel --json es el contrato del dashboard: %d %s", code, out)
+	if code != 0 || json.Unmarshal([]byte(out), &p) != nil || len(p.Agentes) != 5 || len(p.Sesiones) != 2 || len(p.Tareas) != 1 || p.Misiones == nil {
+		t.Fatalf("panel --json trae las sesiones y los agentes de todas: %d %s", code, out)
+	}
+	if p.Agentes[0]["sesion"] != "s1abcdef-99" || p.Sesiones[0]["id"] != "s1abcdef-99" || p.Sesiones[1]["terminada"] != true {
+		t.Fatalf("cada agente lleva su sesión: %s", out)
 	}
 }
 
-func TestDashboardValidaPuertoYPuertoOcupado(t *testing.T) {
+// ───────────── Dashboard central (3.8) ─────────────
+
+func hogarDePrueba(t *testing.T) string {
+	t.Helper()
+	hogar := t.TempDir()
+	t.Setenv("HZ_HOGAR", hogar)
+	return hogar
+}
+
+func conectados(t *testing.T, hogar string) []string {
+	t.Helper()
+	ps, err := registro.Lista(hogar)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := []string{}
+	for _, p := range ps {
+		out = append(out, p.Raiz)
+	}
+	return out
+}
+
+func TestActivarYPunteroConectanElProyecto(t *testing.T) {
+	hogar := hogarDePrueba(t)
+	raiz := t.TempDir()
+	if code, _, e := hz(t, "--raiz", raiz, "activar"); code != 0 {
+		t.Fatalf("activar: %s", e)
+	}
+	if c := conectados(t, hogar); len(c) != 1 || c[0] != filepath.Clean(raiz) {
+		t.Fatalf("activar conecta el proyecto al dashboard central: %v", c)
+	}
+	if _, err := registro.Desconectar(hogar, raiz); err != nil {
+		t.Fatal(err)
+	}
+	sesiones := filepath.Join(raiz, ".harness", "cache", "actividad")
+	if err := os.MkdirAll(sesiones, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	vieja := filepath.Join(sesiones, "vieja.json")
+	if err := os.WriteFile(vieja, []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	antes := time.Now().Add(-25 * time.Hour)
+	if err := os.Chtimes(vieja, antes, antes); err != nil {
+		t.Fatal(err)
+	}
+	if code, out, _ := hz(t, "--raiz", raiz, "puntero"); code != 0 || !strings.Contains(out, "SessionStart") {
+		t.Fatalf("puntero sigue entregando el contexto: %d %q", code, out)
+	}
+	if c := conectados(t, hogar); len(c) != 1 {
+		t.Fatalf("cada inicio de sesión conecta el proyecto: %v", c)
+	}
+	if _, err := os.Stat(vieja); !os.IsNotExist(err) {
+		t.Fatal("puntero poda los snapshots de sesión de más de 24 h")
+	}
+	if err := os.WriteFile(filepath.Join(hogar, registro.Archivo), []byte("{roto"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, out, _ := hz(t, "--raiz", raiz, "puntero"); code != 0 || !strings.Contains(out, "SessionStart") {
+		t.Fatalf("con el registro corrupto, puntero nunca falla: %d %q", code, out)
+	}
+}
+
+func TestDashboardValidaOpciones(t *testing.T) {
+	hogarDePrueba(t)
 	raiz := t.TempDir()
 	if code, _, e := hz(t, "--raiz", raiz, "activar", "--nivel", "N3"); code != 0 {
 		t.Fatalf("activar: %s", e)
 	}
-	for _, args := range [][]string{{"--puerto", "0"}, {"--puerto", "70000"}, {"--puerto", "abc"}, {"extra"}} {
+	for _, args := range [][]string{{"--puerto", "0"}, {"--puerto", "70000"}, {"--puerto", "abc"}, {"extra"}, {"--detener", "--desconectar"}, {"--primer-plano", "--detener"}} {
 		if code, _, _ := hz(t, append([]string{"--raiz", raiz, "dashboard"}, args...)...); code != 2 {
 			t.Errorf("hz dashboard %v debe ser uso inválido, llegó %d", args, code)
 		}
+	}
+	if code, _, _ := hz(t, "--raiz", t.TempDir(), "dashboard", "--desconectar"); code != 3 {
+		t.Errorf("desconectar fuera de un proyecto es código 3, llegó %d", code)
 	}
 	ocupado, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -373,8 +472,8 @@ func TestDashboardValidaPuertoYPuertoOcupado(t *testing.T) {
 	}
 	defer ocupado.Close()
 	puerto := strconv.Itoa(ocupado.Addr().(*net.TCPAddr).Port)
-	if code, _, e := hz(t, "--raiz", raiz, "dashboard", "--puerto", puerto); code != 4 || !strings.Contains(e, "no se pudo escuchar") {
-		t.Fatalf("con el puerto ocupado, hz dashboard falla sin quedarse colgado: %d %q", code, e)
+	if code, _, e := hz(t, "dashboard", "--primer-plano", "--puerto", puerto); code != 4 || !strings.Contains(e, "no se pudo escuchar") {
+		t.Fatalf("en primer plano con el puerto ocupado, falla sin quedarse colgado: %d %q", code, e)
 	}
 	if code, _, e := hz(t, "--raiz", raiz, "mision", "nueva", "m1", "--objetivo", "x", "--usd-max", "5"); code != 0 {
 		t.Fatalf("mision: %s", e)
@@ -387,35 +486,175 @@ func TestDashboardValidaPuertoYPuertoOcupado(t *testing.T) {
 	}
 }
 
-func TestDashboardSirveYSeApagaOrdenadamente(t *testing.T) {
-	raiz := t.TempDir()
-	if code, _, e := hz(t, "--raiz", raiz, "activar", "--nivel", "N2"); code != 0 {
-		t.Fatalf("activar: %s", e)
-	}
-	libre, err := net.Listen("tcp", "127.0.0.1:0")
+func puertoLibre(t *testing.T) int {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	puerto := strconv.Itoa(libre.Addr().(*net.TCPAddr).Port)
-	libre.Close()
-	estado := make(chan int, 1)
-	alEscuchar = func(dir string, apagar func()) {
+	defer l.Close()
+	return l.Addr().(*net.TCPAddr).Port
+}
+
+// servirEnProceso levanta el dashboard central dentro del test, en el puerto dado y con la identidad dada.
+func servirEnProceso(t *testing.T, hogar string, puerto int, salud dashboard.Salud) *http.Server {
+	t.Helper()
+	ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(puerto)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := dashboard.NuevaCentral(hogar)
+	srv := &http.Server{Handler: dashboard.Servidor(c, puerto, salud)}
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() {
+		_ = srv.Close()
+		c.Cerrar()
+	})
+	return srv
+}
+
+func cambiar[T any](t *testing.T, v *T, nuevo T) {
+	t.Helper()
+	viejo := *v
+	*v = nuevo
+	t.Cleanup(func() { *v = viejo })
+}
+
+func TestDashboardConectaElProyectoAlServidorQueYaCorre(t *testing.T) {
+	hogar := hogarDePrueba(t)
+	raiz := t.TempDir()
+	if code, _, e := hz(t, "--raiz", raiz, "activar"); code != 0 {
+		t.Fatalf("activar: %s", e)
+	}
+	if _, err := registro.Desconectar(hogar, raiz); err != nil {
+		t.Fatal(err)
+	}
+	puerto := puertoLibre(t)
+	servirEnProceso(t, hogar, puerto, dashboard.Salud{Pid: 1, Binario: binarioPropio()})
+	cambiar(t, &lanzarDashboard, func(int, string, string) error {
+		t.Error("con un dashboard vivo y del mismo binario no se lanza otro")
+		return nil
+	})
+	code, out, e := hz(t, "--raiz", raiz, "dashboard", "--puerto", strconv.Itoa(puerto))
+	if code != 0 || !strings.Contains(out, fmt.Sprintf("http://127.0.0.1:%d", puerto)) || !strings.Contains(out, "proyecto "+filepath.Base(raiz)+" conectado") {
+		t.Fatalf("hz dashboard conecta el proyecto y da la URL: %d %q %q", code, out, e)
+	}
+	r, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/api/panel", puerto))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Body.Close()
+	var p struct {
+		Proyectos []struct {
+			Raiz       string `json:"raiz"`
+			Disponible bool   `json:"disponible"`
+		} `json:"proyectos"`
+	}
+	if json.NewDecoder(r.Body).Decode(&p) != nil || len(p.Proyectos) != 1 || p.Proyectos[0].Raiz != filepath.Clean(raiz) || !p.Proyectos[0].Disponible {
+		t.Fatalf("el servidor que ya corría muestra el proyecto recién conectado: %+v", p)
+	}
+}
+
+func TestDashboardLanzaElServidorSiNoCorre(t *testing.T) {
+	hogar := hogarDePrueba(t)
+	puerto := puertoLibre(t)
+	var lanzado struct {
+		puerto     int
+		dir, log   string
+	}
+	cambiar(t, &lanzarDashboard, func(p int, dir, log string) error {
+		lanzado.puerto, lanzado.dir, lanzado.log = p, dir, log
+		servirEnProceso(t, hogar, p, dashboard.Salud{Pid: 2, Binario: binarioPropio()})
+		return nil
+	})
+	code, out, e := hz(t, "--raiz", t.TempDir(), "dashboard", "--puerto", strconv.Itoa(puerto))
+	if code != 0 || !strings.Contains(out, fmt.Sprintf("http://127.0.0.1:%d", puerto)) || strings.Contains(out, "conectado") {
+		t.Fatalf("fuera de un proyecto, solo levanta el dashboard y da la URL: %d %q %q", code, out, e)
+	}
+	if lanzado.puerto != puerto || lanzado.dir != hogar || lanzado.log != filepath.Join(hogar, "dashboard.log") {
+		t.Fatalf("lanza el servidor desacoplado en ese puerto, desde el hogar y con su log ahí: %+v", lanzado)
+	}
+}
+
+func TestDashboardReemplazaUnServidorDeOtroBinario(t *testing.T) {
+	hogar := hogarDePrueba(t)
+	puerto := puertoLibre(t)
+	viejo := servirEnProceso(t, hogar, puerto, dashboard.Salud{Pid: 777, Binario: "binario-viejo"})
+	terminado := 0
+	cambiar(t, &terminarProceso, func(pid int) error {
+		terminado = pid
+		return viejo.Close()
+	})
+	cambiar(t, &lanzarDashboard, func(p int, _, _ string) error {
+		servirEnProceso(t, hogar, p, dashboard.Salud{Pid: 3, Binario: binarioPropio()})
+		return nil
+	})
+	if code, _, e := hz(t, "dashboard", "--puerto", strconv.Itoa(puerto)); code != 0 || terminado != 777 {
+		t.Fatalf("tras recompilar hz, el dashboard viejo se reemplaza: %d pid=%d %q", code, terminado, e)
+	}
+}
+
+func TestDashboardPuertoDeOtroServicio(t *testing.T) {
+	hogarDePrueba(t)
+	ajeno := httptest.NewServer(http.NotFoundHandler())
+	defer ajeno.Close()
+	puerto := ajeno.Listener.Addr().(*net.TCPAddr).Port
+	cambiar(t, &lanzarDashboard, func(int, string, string) error {
+		t.Error("no se lanza nada sobre un puerto ajeno")
+		return nil
+	})
+	if code, _, e := hz(t, "dashboard", "--puerto", strconv.Itoa(puerto)); code != 4 || !strings.Contains(e, "otro servicio") || !strings.Contains(e, "--puerto") {
+		t.Fatalf("un puerto ocupado por otro servicio se informa con su remediación: %d %q", code, e)
+	}
+}
+
+func TestDashboardDetenerYDesconectar(t *testing.T) {
+	hogar := hogarDePrueba(t)
+	puerto := strconv.Itoa(puertoLibre(t))
+	if code, out, _ := hz(t, "dashboard", "--detener", "--puerto", puerto); code != 0 || !strings.Contains(out, "no hay dashboard corriendo") {
+		t.Fatalf("detener sin dashboard no es error: %d %q", code, out)
+	}
+	p, _ := strconv.Atoi(puerto)
+	srv := servirEnProceso(t, hogar, p, dashboard.Salud{Pid: 999, Binario: "x"})
+	terminado := 0
+	cambiar(t, &terminarProceso, func(pid int) error {
+		terminado = pid
+		return srv.Close()
+	})
+	if code, out, e := hz(t, "dashboard", "--detener", "--puerto", puerto); code != 0 || terminado != 999 || !strings.Contains(out, "detenido") {
+		t.Fatalf("detener termina el proceso que se identificó en /api/salud: %d pid=%d %q %q", code, terminado, out, e)
+	}
+	raiz := t.TempDir()
+	if code, _, e := hz(t, "--raiz", raiz, "activar"); code != 0 {
+		t.Fatalf("activar: %s", e)
+	}
+	if code, out, _ := hz(t, "--raiz", raiz, "dashboard", "--desconectar"); code != 0 || !strings.Contains(out, "desconectado") || len(conectados(t, hogar)) != 0 {
+		t.Fatalf("desconectar saca el proyecto del registro: %d %q %v", code, out, conectados(t, hogar))
+	}
+}
+
+func TestDashboardEnPrimerPlanoSirveYSeApagaOrdenadamente(t *testing.T) {
+	hogarDePrueba(t)
+	puerto := strconv.Itoa(puertoLibre(t))
+	estado := make(chan string, 1)
+	cambiar(t, &alEscuchar, func(dir string, apagar func()) {
 		defer apagar()
-		r, err := http.Get("http://" + dir + "/api/panel")
+		r, err := http.Get("http://" + dir + "/api/salud")
 		if err != nil {
-			estado <- -1
+			estado <- err.Error()
 			return
 		}
-		r.Body.Close()
-		estado <- r.StatusCode
-	}
-	defer func() { alEscuchar = nil }()
-	code, out, e := hz(t, "--raiz", raiz, "dashboard", "--puerto", puerto)
+		defer r.Body.Close()
+		var s map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&s)
+		estado <- fmt.Sprint(r.StatusCode, " ", s["servicio"], " ", s["pid"] == float64(os.Getpid()), " ", s["binario"] == binarioPropio())
+	})
+	code, out, e := hz(t, "dashboard", "--primer-plano", "--puerto", puerto)
 	if code != 0 || !strings.Contains(out, "detenido") {
 		t.Fatalf("al apagarse, hz dashboard sale con 0: %d %q %q", code, out, e)
 	}
-	if s := <-estado; s != http.StatusOK {
-		t.Fatalf("mientras corría, /api/panel respondió %d", s)
+	if s := <-estado; s != "200 hz-dashboard true true" {
+		t.Fatalf("mientras corría, /api/salud lo identificó con su pid y su binario: %s", s)
 	}
 }
 

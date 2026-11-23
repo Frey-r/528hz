@@ -1,6 +1,6 @@
-// Package dashboard sirve el panel web local del harness (contratos/cli.md · 3.7, D-0050): árbol de
-// supervisión + carriles de actividad por agente, calculados en Go como SVG (D-0044). La página solo
-// refresca el fragmento.
+// Package dashboard sirve el panel web local del harness: un dashboard central que lee todos los proyectos
+// conectados (contratos/cli.md · 3.7 y 3.8, D-0050, D-0053). Árbol de supervisión + carriles de actividad,
+// calculados en Go como SVG (D-0044); la página solo refresca el fragmento.
 package dashboard
 
 import (
@@ -18,13 +18,16 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"hz528/internal/exportar"
 	"hz528/internal/motor"
+	"hz528/internal/proyecto"
+	"hz528/internal/registro"
 )
 
-// Agente es una fila del snapshot que escribe el plugin (.harness/cache/actividad.json).
+// Agente es una fila de un snapshot de sesión que escribe el plugin.
 type Agente struct {
 	ID          string `json:"id"`
 	Rol         string `json:"rol"`
@@ -63,6 +66,9 @@ func (a Agente) Glifo() string {
 // SeguidosAlerta es la racha de errores que marca a un agente.
 const SeguidosAlerta = 3
 
+// Principal es el id de la fila de la sesión principal en cada snapshot.
+const Principal = "principal"
+
 const maxUltima = 40
 
 func recortar(s string, n int) string {
@@ -73,31 +79,138 @@ func recortar(s string, n int) string {
 	return string(r[:n-1]) + "…"
 }
 
-// Actividad es el snapshot completo: filas y, por agente, sus últimos eventos [t_ms, tipo].
-type Actividad struct {
-	Version  int                   `json:"version"`
-	Generado string                `json:"generado"`
-	Agentes  []Agente              `json:"agentes"`
-	Eventos  map[string][][2]int64 `json:"eventos"`
+// ───────────────────────── sesiones ─────────────────────────
+
+// DirSesiones es donde el plugin escribe un snapshot por sesión (<sessionId>.json).
+const DirSesiones = ".harness/cache/actividad"
+
+// Inactividad es cuánto puede pasar una sesión sin escribir antes de considerarla inactiva.
+const Inactividad = 30 * time.Minute
+
+// Sesion es el snapshot de una sesión de Claude Code en un proyecto.
+type Sesion struct {
+	ID        string                `json:"id"`
+	Generado  string                `json:"generado"`
+	Terminada bool                  `json:"terminada"`
+	Inactiva  bool                  `json:"inactiva"`
+	Agentes   []Agente              `json:"agentes"`
+	Eventos   map[string][][2]int64 `json:"eventos"`
+	t         time.Time
 }
 
-// ArchivoActividad es donde el plugin escribe el snapshot.
-const ArchivoActividad = ".harness/cache/actividad.json"
+// Viva indica si la sesión sigue en curso: ni terminada ni inactiva.
+func (s Sesion) Viva() bool { return !s.Terminada && !s.Inactiva }
 
-// LeerActividad lee el snapshot; sin archivo devuelve nil sin error.
-func LeerActividad(raiz string) (*Actividad, error) {
-	b, err := os.ReadFile(filepath.Join(raiz, ArchivoActividad))
+// instante es cuándo se escribió el snapshot.
+func (s Sesion) instante() time.Time {
+	if !s.t.IsZero() {
+		return s.t
+	}
+	t, _ := time.Parse(time.RFC3339, s.Generado)
+	return t
+}
+
+// Corto es el id de la sesión recortado a 8 caracteres.
+func (s Sesion) Corto() string {
+	if len(s.ID) > 8 {
+		return s.ID[:8]
+	}
+	return s.ID
+}
+
+// EstadoTexto es activa, inactiva o terminada.
+func (s Sesion) EstadoTexto() string {
+	switch {
+	case s.Terminada:
+		return "terminada"
+	case s.Inactiva:
+		return "inactiva"
+	}
+	return "activa"
+}
+
+type snapshot struct {
+	Sesion    string                `json:"sesion"`
+	Generado  string                `json:"generado"`
+	Terminada bool                  `json:"terminada"`
+	Agentes   []Agente              `json:"agentes"`
+	Eventos   map[string][][2]int64 `json:"eventos"`
+}
+
+func dirSesiones(raiz string) string { return filepath.Join(raiz, filepath.FromSlash(DirSesiones)) }
+
+// LeerSesiones lee los snapshots del proyecto: las activas primero y luego por la más reciente. Un archivo
+// ilegible (por ejemplo, leído a medio escribir) se omite; sin carpeta no hay sesiones.
+func LeerSesiones(raiz string, ahora time.Time) ([]Sesion, error) {
+	dir := dirSesiones(raiz)
+	entradas, err := os.ReadDir(dir)
 	if errors.Is(err, iofs.ErrNotExist) {
-		return nil, nil
+		return []Sesion{}, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	var a Actividad
-	if err := json.Unmarshal(b, &a); err != nil {
-		return nil, fmt.Errorf("%s: %w", ArchivoActividad, err)
+	out := make([]Sesion, 0, len(entradas))
+	for _, e := range entradas {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		var sn snapshot
+		if json.Unmarshal(b, &sn) != nil {
+			continue
+		}
+		s := Sesion{ID: sn.Sesion, Generado: sn.Generado, Terminada: sn.Terminada, Agentes: sn.Agentes, Eventos: sn.Eventos}
+		if s.ID == "" {
+			s.ID = strings.TrimSuffix(e.Name(), ".json")
+		}
+		if s.Agentes == nil {
+			s.Agentes = []Agente{}
+		}
+		if s.Eventos == nil {
+			s.Eventos = map[string][][2]int64{}
+		}
+		if t, err := time.Parse(time.RFC3339, sn.Generado); err == nil {
+			s.t = t
+		} else if info, err := e.Info(); err == nil {
+			s.t = info.ModTime()
+		}
+		s.Inactiva = !s.Terminada && ahora.Sub(s.t) > Inactividad
+		out = append(out, s)
 	}
-	return &a, nil
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Viva() != out[j].Viva() {
+			return out[i].Viva()
+		}
+		if !out[i].t.Equal(out[j].t) {
+			return out[i].t.After(out[j].t)
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out, nil
+}
+
+// PodarSesiones borra los snapshots que llevan más de edad sin escribirse y devuelve cuántos borró.
+func PodarSesiones(raiz string, ahora time.Time, edad time.Duration) int {
+	dir := dirSesiones(raiz)
+	entradas, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, e := range entradas {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
+			continue
+		}
+		info, err := e.Info()
+		if err == nil && ahora.Sub(info.ModTime()) > edad && os.Remove(filepath.Join(dir, e.Name())) == nil {
+			n++
+		}
+	}
+	return n
 }
 
 // Nodo es un agente en el árbol de supervisión.
@@ -179,27 +292,134 @@ func Resumen(a Agente, ahora time.Time) string {
 	return strings.Join(partes, " · ")
 }
 
-// Datos es todo lo que dibuja el dashboard.
-type Datos struct {
-	Proyecto, Nivel, Modo string
-	Misiones              []exportar.MisionExportada
-	Tareas                []exportar.Activa
-	Arriendos             int
-	Actividad             *Actividad
+// ───────────────────────── proyectos ─────────────────────────
+
+// Proyecto es todo lo que el dashboard sabe de un proyecto conectado.
+type Proyecto struct {
+	ID         string                     `json:"id"`
+	Nombre     string                     `json:"nombre"`
+	Raiz       string                     `json:"raiz"`
+	Disponible bool                       `json:"disponible"`
+	Error      string                     `json:"error"`
+	Nivel      string                     `json:"nivel"`
+	Modo       string                     `json:"modo"`
+	Tareas     []exportar.Activa          `json:"tareas"`
+	Arriendos  int                        `json:"arriendos"`
+	Misiones   []exportar.MisionExportada `json:"misiones"`
+	Sesiones   []Sesion                   `json:"sesiones"`
 }
 
-// Reunir junta el estado del motor (vía hooks.json v2 en memoria) con el snapshot del plugin.
-func Reunir(m *motor.Motor, raiz string) (Datos, error) {
+// Reunir junta el estado del motor (hooks.json v2 en memoria) con las sesiones que escribió el plugin.
+func Reunir(m *motor.Motor, raiz string, ahora time.Time) (Proyecto, error) {
 	h, err := exportar.Construir(m, raiz)
 	if err != nil {
-		return Datos{}, err
+		return Proyecto{}, err
 	}
-	act, err := LeerActividad(raiz)
+	ss, err := LeerSesiones(raiz, ahora)
 	if err != nil {
-		return Datos{}, err
+		return Proyecto{}, err
 	}
-	return Datos{Proyecto: filepath.Base(raiz), Nivel: h.Nivel, Modo: h.Modo, Misiones: h.Misiones,
-		Tareas: h.TareasActivas, Arriendos: len(h.Arriendos), Actividad: act}, nil
+	p := Proyecto{ID: registro.ID(raiz), Nombre: filepath.Base(raiz), Raiz: raiz, Disponible: true, Nivel: h.Nivel, Modo: h.Modo,
+		Tareas: h.TareasActivas, Arriendos: len(h.Arriendos), Misiones: h.Misiones, Sesiones: ss}
+	return completo(p), nil
+}
+
+// completo cambia los nil por listas vacías para que el JSON sea estable.
+func completo(p Proyecto) Proyecto {
+	if p.Tareas == nil {
+		p.Tareas = []exportar.Activa{}
+	}
+	if p.Misiones == nil {
+		p.Misiones = []exportar.MisionExportada{}
+	}
+	if p.Sesiones == nil {
+		p.Sesiones = []Sesion{}
+	}
+	return p
+}
+
+// Central reúne los proyectos del registro de usuario. Abre un motor por proyecto al primer uso y lo
+// reutiliza entre peticiones (RG-1); lo cierra cuando el proyecto sale del registro o falla.
+type Central struct {
+	hogar   string
+	mu      sync.Mutex
+	motores map[string]*motor.Motor // por id de proyecto
+}
+
+// NuevaCentral crea la central sobre el hogar de hz (donde vive proyectos.json).
+func NuevaCentral(hogar string) *Central {
+	return &Central{hogar: hogar, motores: map[string]*motor.Motor{}}
+}
+
+// Cerrar libera todos los motores.
+func (c *Central) Cerrar() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for id := range c.motores {
+		c.soltar(id)
+	}
+}
+
+func (c *Central) soltar(id string) {
+	if m := c.motores[id]; m != nil {
+		_ = m.Cerrar()
+		delete(c.motores, id)
+	}
+}
+
+// Proyectos lee el registro y cada proyecto conectado. Un proyecto ilegible sale como no disponible con su
+// motivo; solo un registro ilegible es error.
+func (c *Central) Proyectos(ahora time.Time) ([]Proyecto, error) {
+	lista, err := registro.Lista(c.hogar)
+	if err != nil {
+		return nil, err
+	}
+	nombres := registro.Nombres(lista)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	vigentes := make(map[string]bool, len(lista))
+	out := make([]Proyecto, 0, len(lista))
+	for _, r := range lista {
+		id := registro.ID(r.Raiz)
+		vigentes[id] = true
+		p, err := c.leer(id, r.Raiz, ahora)
+		if err != nil {
+			c.soltar(id)
+			p = Proyecto{Error: err.Error()}
+		}
+		p.ID, p.Nombre, p.Raiz = id, nombres[r.Raiz], r.Raiz
+		out = append(out, completo(p))
+	}
+	for id := range c.motores {
+		if !vigentes[id] {
+			c.soltar(id)
+		}
+	}
+	return out, nil
+}
+
+func (c *Central) leer(id, raiz string, ahora time.Time) (Proyecto, error) {
+	if _, err := os.Stat(raiz); err != nil {
+		return Proyecto{}, errors.New("la carpeta no existe")
+	}
+	if _, err := os.Stat(filepath.Join(raiz, ".harness", "harness.yaml")); err != nil {
+		return Proyecto{}, errors.New("sin harness")
+	}
+	perfil, err := proyecto.Cargar(raiz)
+	if err != nil {
+		return Proyecto{}, err
+	}
+	if !perfil.Enabled {
+		return Proyecto{}, errors.New("harness desactivado")
+	}
+	m := c.motores[id]
+	if m == nil {
+		if m, err = motor.Abrir(raiz); err != nil {
+			return Proyecto{}, fmt.Errorf("motor: %w", err)
+		}
+		c.motores[id] = m
+	}
+	return Reunir(m, raiz, ahora)
 }
 
 // ───────────────────────── fragmento ─────────────────────────
@@ -237,12 +457,27 @@ type misionVista struct {
 	Ancho        template.CSS
 }
 
+type chip struct {
+	ID, Nombre     string
+	Activo, Alerta bool
+}
+
+type vistaProyecto struct {
+	ID, Nombre, Nivel, Modo, Tareas, Error string
+	Arriendos                              int
+	Disponible, Abierto                    bool
+	Misiones                               []misionVista
+	Filas                                  []fila
+	alertas, vivos, activas                int
+	ultima                                 time.Time
+}
+
 type vista struct {
-	Proyecto, Nivel, Modo, Tareas string
-	Arriendos                     int
-	Misiones                      []misionVista
-	EjeInicio, EjeMedio           string
-	Filas                         []fila
+	Titulo              string
+	Todos               bool
+	Chips               []chip
+	Proyectos           []vistaProyecto
+	EjeInicio, EjeMedio string
 }
 
 var claseEvento = map[int64]string{0: "ok", 1: "err", 2: "ini", 3: "fin"}
@@ -251,6 +486,13 @@ func num(v float64) string { return strconv.FormatFloat(v, 'f', 1, 64) }
 
 func usd(v float64) string {
 	return "US$" + strings.Replace(strconv.FormatFloat(v, 'f', 2, 64), ".", ",", 1)
+}
+
+func cuenta(n int, singular, plural string) string {
+	if n == 1 {
+		return "1 " + singular
+	}
+	return strconv.Itoa(n) + " " + plural
 }
 
 func marcas(eventos [][2]int64, ahora time.Time, ventana time.Duration) []marca {
@@ -275,18 +517,75 @@ func marcas(eventos [][2]int64, ahora time.Time, ventana time.Duration) []marca 
 	return out
 }
 
-func armarVista(d Datos, ahora time.Time, ventana time.Duration) vista {
-	v := vista{Proyecto: d.Proyecto, Nivel: d.Nivel, Modo: d.Modo, Arriendos: d.Arriendos,
-		EjeInicio: "−" + Hace(ventana), EjeMedio: "−" + Hace(ventana/2)}
-	tareas := make([]string, 0, len(d.Tareas))
-	for _, t := range d.Tareas {
+// enVentana indica si alguno de los eventos cae dentro de la ventana.
+func enVentana(eventos [][2]int64, ahora time.Time, ventana time.Duration) bool {
+	desde, hasta := ahora.Add(-ventana).UnixMilli(), ahora.UnixMilli()
+	for _, ev := range eventos {
+		if ev[0] >= desde && ev[0] <= hasta {
+			return true
+		}
+	}
+	return false
+}
+
+// filasSesion: la sesión es la raíz (con los carriles de la principal) y debajo cuelgan sus subagentes.
+func filasSesion(s Sesion, ahora time.Time, ventana time.Duration) []fila {
+	viva := s.Viva()
+	raiz := fila{Rol: "sesión " + s.Corto() + " · " + s.EstadoTexto(), Glifo: "●", Clase: "sesion"}
+	switch {
+	case s.Terminada:
+		raiz.Glifo = "✓"
+	case s.Inactiva:
+		raiz.Glifo = "○"
+	}
+	if !viva {
+		raiz.Clase = "sesion fin"
+	}
+	out := []fila{raiz}
+	desplazar := 0
+	for _, n := range Arbol(s.Agentes) {
+		a := n.Agente
+		if n.Nivel == 0 {
+			if a.ID == Principal {
+				out[0].Resumen = Resumen(a, ahora)
+				out[0].Marcas = marcas(s.Eventos[a.ID], ahora, ventana)
+				if viva {
+					out[0].Glifo = a.Glifo()
+				}
+				if viva && a.Seguidos >= SeguidosAlerta {
+					out[0].Clase = "sesion alerta"
+				}
+				desplazar = 0
+				continue
+			}
+			// un subagente cuyo supervisor no está en el snapshot cuelga directo de la sesión
+			desplazar = 1
+		}
+		f := fila{Rol: a.Rol, Tarea: a.Tarea, Descripcion: a.Descripcion, Glifo: a.Glifo(), Nivel: min(n.Nivel+desplazar, 5),
+			Resumen: Resumen(a, ahora), Marcas: marcas(s.Eventos[a.ID], ahora, ventana)}
+		switch {
+		case (viva && a.Seguidos >= SeguidosAlerta) || a.Estado == "fallido":
+			f.Clase = "alerta"
+		case !a.Vivo() || !viva:
+			f.Clase = "fin"
+		}
+		out = append(out, f)
+	}
+	return out
+}
+
+func armarProyecto(p Proyecto, ahora time.Time, ventana time.Duration) vistaProyecto {
+	v := vistaProyecto{ID: p.ID, Nombre: p.Nombre, Nivel: p.Nivel, Modo: p.Modo, Arriendos: p.Arriendos,
+		Disponible: p.Disponible, Error: p.Error}
+	tareas := make([]string, 0, len(p.Tareas))
+	for _, t := range p.Tareas {
 		tareas = append(tareas, t.ID+" "+strings.ToUpper(t.Estado))
 	}
 	v.Tareas = "ninguna"
 	if len(tareas) > 0 {
 		v.Tareas = strings.Join(tareas, ", ")
 	}
-	for _, m := range d.Misiones {
+	for _, m := range p.Misiones {
 		mv := misionVista{Texto: fmt.Sprintf("misión %s · %s", m.ID, usd(m.Gasto))}
 		if m.UsdMax > 0 {
 			r := m.Gasto / m.UsdMax
@@ -295,23 +594,69 @@ func armarVista(d Datos, ahora time.Time, ventana time.Duration) vista {
 		}
 		if m.SinPresupuesto {
 			mv.Clase, mv.Texto = "sin", mv.Texto+" · sin presupuesto"
+			v.alertas++
 		}
 		v.Misiones = append(v.Misiones, mv)
 	}
-	if d.Actividad == nil {
-		return v
-	}
-	for _, n := range Arbol(d.Actividad.Agentes) {
-		a := n.Agente
-		f := fila{Rol: a.Rol, Tarea: a.Tarea, Descripcion: a.Descripcion, Glifo: a.Glifo(), Nivel: min(n.Nivel, 5),
-			Resumen: Resumen(a, ahora), Marcas: marcas(d.Actividad.Eventos[a.ID], ahora, ventana)}
-		switch {
-		case a.Seguidos >= SeguidosAlerta || a.Estado == "fallido":
-			f.Clase = "alerta"
-		case !a.Vivo():
-			f.Clase = "fin"
+	for _, s := range p.Sesiones {
+		viva := s.Viva()
+		if t := s.instante(); t.After(v.ultima) {
+			v.ultima = t
 		}
-		v.Filas = append(v.Filas, f)
+		if viva {
+			v.activas++
+		}
+		conEventos := false
+		for _, a := range s.Agentes {
+			reciente := enVentana(s.Eventos[a.ID], ahora, ventana)
+			conEventos = conEventos || reciente
+			if viva && a.Vivo() && a.ID != Principal {
+				v.vivos++
+			}
+			if (viva && a.Vivo() && a.Seguidos >= SeguidosAlerta) || (a.Estado == "fallido" && reciente) {
+				v.alertas++
+			}
+		}
+		if viva || conEventos {
+			v.Filas = append(v.Filas, filasSesion(s, ahora, ventana)...)
+		}
+	}
+	v.Abierto = len(v.Filas) > 0
+	return v
+}
+
+func armarVista(ps []Proyecto, filtro string, ahora time.Time, ventana time.Duration) vista {
+	v := vista{EjeInicio: "−" + Hace(ventana), EjeMedio: "−" + Hace(ventana/2), Todos: true}
+	vs := make([]vistaProyecto, 0, len(ps))
+	activas, vivos, alertas := 0, 0, 0
+	for _, p := range ps {
+		vp := armarProyecto(p, ahora, ventana)
+		activas, vivos, alertas = activas+vp.activas, vivos+vp.vivos, alertas+vp.alertas
+		if vp.ID == filtro {
+			v.Todos = false
+		}
+		vs = append(vs, vp)
+	}
+	sort.SliceStable(vs, func(i, j int) bool {
+		a, b := vs[i], vs[j]
+		if (a.alertas > 0) != (b.alertas > 0) {
+			return a.alertas > 0
+		}
+		if (a.vivos > 0) != (b.vivos > 0) {
+			return a.vivos > 0
+		}
+		if !a.ultima.Equal(b.ultima) {
+			return a.ultima.After(b.ultima)
+		}
+		return a.Nombre < b.Nombre
+	})
+	v.Titulo = strings.Join([]string{cuenta(len(ps), "proyecto", "proyectos"), cuenta(activas, "sesión activa", "sesiones activas"),
+		cuenta(vivos, "agente vivo", "agentes vivos"), cuenta(alertas, "alerta", "alertas")}, " · ")
+	for _, vp := range vs {
+		v.Chips = append(v.Chips, chip{ID: vp.ID, Nombre: vp.Nombre, Activo: !v.Todos && vp.ID == filtro, Alerta: vp.alertas > 0})
+		if v.Todos || vp.ID == filtro {
+			v.Proyectos = append(v.Proyectos, vp)
+		}
 	}
 	return v
 }
@@ -322,9 +667,10 @@ var fragmentoHTML string
 // Plantilla compilada una sola vez por proceso (RG-1.4).
 var plantilla = template.Must(template.New("fragmento").Parse(fragmentoHTML))
 
-// Fragmento escribe el HTML del árbol + carriles de la ventana.
-func Fragmento(w io.Writer, d Datos, ahora time.Time, ventana time.Duration) error {
-	return plantilla.Execute(w, armarVista(d, ahora, ventana))
+// Fragmento escribe el HTML de todos los proyectos (o solo el del filtro): cabecera global, chips de filtro y,
+// por proyecto, su árbol + carriles de la ventana.
+func Fragmento(w io.Writer, ps []Proyecto, filtro string, ahora time.Time, ventana time.Duration) error {
+	return plantilla.Execute(w, armarVista(ps, filtro, ahora, ventana))
 }
 
 // ───────────────────────── servidor ─────────────────────────
@@ -337,9 +683,26 @@ var app []byte
 
 var ventanas = map[string]time.Duration{"5m": 5 * time.Minute, "10m": 10 * time.Minute, "30m": 30 * time.Minute}
 
-// Servidor es el handler HTTP local de solo lectura. Rechaza todo Host que no sea este equipo y este puerto
-// (protección contra DNS rebinding) y todo método que no sea GET o HEAD.
-func Servidor(m *motor.Motor, raiz string, puerto int) http.Handler {
+// Servicio es el nombre con el que /api/salud identifica al dashboard.
+const Servicio = "hz-dashboard"
+
+// Salud es la identidad del proceso que sirve: con ella hz dashboard sabe si ya corre y con qué binario.
+type Salud struct {
+	Version string
+	Pid     int
+	Binario string
+}
+
+func escribirJSON(w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(v)
+}
+
+// Servidor es el handler HTTP local de solo lectura del dashboard central. Rechaza todo Host que no sea este
+// equipo y este puerto (protección contra DNS rebinding) y todo método que no sea GET o HEAD.
+func Servidor(c *Central, puerto int, salud Salud) http.Handler {
 	p := strconv.Itoa(puerto)
 	permitidos := map[string]bool{net.JoinHostPort("127.0.0.1", p): true, net.JoinHostPort("localhost", p): true, net.JoinHostPort("::1", p): true}
 	mux := http.NewServeMux()
@@ -355,6 +718,9 @@ func Servidor(m *motor.Motor, raiz string, puerto int) http.Handler {
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 		_, _ = w.Write(app)
 	})
+	mux.HandleFunc("/api/salud", func(w http.ResponseWriter, r *http.Request) {
+		escribirJSON(w, map[string]any{"servicio": Servicio, "version": salud.Version, "pid": salud.Pid, "binario": salud.Binario})
+	})
 	mux.HandleFunc("/fragmento", func(w http.ResponseWriter, r *http.Request) {
 		clave := r.URL.Query().Get("ventana")
 		if clave == "" {
@@ -365,34 +731,25 @@ func Servidor(m *motor.Motor, raiz string, puerto int) http.Handler {
 			http.Error(w, "ventana: 5m, 10m o 30m", http.StatusBadRequest)
 			return
 		}
-		d, err := Reunir(m, raiz)
+		ahora := time.Now()
+		ps, err := c.Proyectos(ahora)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if err := Fragmento(w, d, time.Now(), ventana); err != nil {
+		if err := Fragmento(w, ps, r.URL.Query().Get("proyecto"), ahora, ventana); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	})
 	mux.HandleFunc("/api/panel", func(w http.ResponseWriter, r *http.Request) {
-		d, err := Reunir(m, raiz)
+		ahora := time.Now()
+		ps, err := c.Proyectos(ahora)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		salida := map[string]any{"generado": time.Now().Format(time.RFC3339), "actividad_generada": "",
-			"agentes": []Agente{}, "eventos": map[string][][2]int64{}, "tareas": d.Tareas, "arriendos": d.Arriendos, "misiones": d.Misiones}
-		if d.Actividad != nil {
-			salida["actividad_generada"], salida["agentes"] = d.Actividad.Generado, d.Actividad.Agentes
-			if d.Actividad.Eventos != nil {
-				salida["eventos"] = d.Actividad.Eventos
-			}
-		}
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		enc := json.NewEncoder(w)
-		enc.SetEscapeHTML(false)
-		_ = enc.Encode(salida)
+		escribirJSON(w, map[string]any{"generado": ahora.Format(time.RFC3339), "proyectos": ps})
 	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !permitidos[strings.ToLower(r.Host)] {
