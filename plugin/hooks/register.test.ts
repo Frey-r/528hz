@@ -36,7 +36,11 @@ function motor(on: any, o: Opciones = {}) {
   })
   on('tool.call', () => ({ result: {}, text: o.salida ?? 'salida normal' }))
   on('session.start', (_: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
+  on('session.id', () => ({ value: SESION }))
+  on('session.end', (_: unknown, e: { sessionId: string }) => ({ sessionId: e.sessionId }))
 }
+
+const SESION = 'ses-1'
 
 test('deniega editar un test bloqueado', async ($, on) => {
   motor(on)
@@ -152,8 +156,12 @@ function observar(on: any, o: Opciones = {}) {
   const estados: string[] = []
   motor(on, { ...o, estados })
   const snapshots: string[] = []
+  const rutas: string[] = []
   on('fs.write', (_: unknown, e: { path: string; text: string }) => {
-    if (e.path.includes('actividad.json')) snapshots.push(e.text)
+    if (e.path.replaceAll('\\', '/').includes('.harness/cache/actividad/')) {
+      snapshots.push(e.text)
+      rutas.push(e.path.replaceAll('\\', '/'))
+    }
     return { value: undefined }
   })
   const abiertos: string[] = []
@@ -165,15 +173,16 @@ function observar(on: any, o: Opciones = {}) {
   on('agent.list', () => ({ value: [] }))
   on('agent.spawn', () => ({ model: 'sonnet', agentId: 'ag7' }))
   on('agent.report', (_: unknown, e: { text: string }) => ({ text: e.text }))
-  return { snapshots, estados, abiertos }
+  return { snapshots, rutas, estados, abiertos }
 }
 
-test('lanzar y terminar un subagente queda en el snapshot de actividad', async ($, on) => {
-  const { snapshots } = observar(on)
+test('lanzar y terminar un subagente queda en el snapshot de su sesión', async ($, on) => {
+  const { snapshots, rutas } = observar(on)
   await $.session.start({ cwd: RAIZ, surface: 'terminal', isInteractive: true })
   await $.agent.spawn({ tool_use_id: 't1', prompt: 'x', description: 'implementador T-1', subagentType: 'hz:implementador' } as any)
   const lanzado = JSON.parse(snapshots.at(-1) ?? '{}')
-  expect(lanzado.version).toBe(1)
+  expect(rutas.at(-1)).toBe(`${RAIZ}/.harness/cache/actividad/${SESION}.json`)
+  expect(lanzado).toMatchObject({ version: 2, sesion: SESION, terminada: false })
   expect(lanzado.agentes.find((a: any) => a.id === 'ag7')).toMatchObject({ rol: 'implementador', tarea: 'T-1', estado: 'lanzado' })
   await $.agent.report({ agentId: 'ag7', subagentType: 'hz:implementador', status: 'completed', text: 'listo' } as any)
   const terminado = JSON.parse(snapshots.at(-1) ?? '{}')
@@ -214,4 +223,17 @@ test('el snapshot trae los eventos de cada agente para los carriles del dashboar
   await $.agent.report({ agentId: 'ag7', subagentType: 'hz:tester', status: 'completed', text: 'listo' } as any)
   const snap = JSON.parse(snapshots.at(-1) ?? '{}')
   expect(snap.eventos.ag7.map((e: number[]) => e[1])).toEqual([2, 3])
+})
+
+test('al terminar la sesión su snapshot queda cerrado y los subagentes vivos, detenidos', async ($, on) => {
+  const { snapshots } = observar(on)
+  await $.session.start({ cwd: RAIZ, surface: 'terminal', isInteractive: true })
+  await $.tool.call({ tool: 'Read', file_path: `${RAIZ}/README.md` })
+  await $.agent.spawn({ tool_use_id: 't1', prompt: 'x', description: 'tester T-1', subagentType: 'hz:tester' } as any)
+  await $.session.end({ reason: 'prompt_input_exit', sessionId: SESION, resume: {} } as any)
+  const fin = JSON.parse(snapshots.at(-1) ?? '{}')
+  expect(fin).toMatchObject({ sesion: SESION, terminada: true })
+  expect(fin.agentes.find((a: any) => a.id === 'principal').estado).toBe('terminado')
+  expect(fin.agentes.find((a: any) => a.id === 'ag7').estado).toBe('detenido')
+  expect(fin.eventos.ag7.map((e: number[]) => e[1])).toEqual([2, 3])
 })

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:">
-<title>hz · panel de agentes</title>
+<title>hz · dashboard de proyectos</title>
 <style>
 :root {
   color-scheme: dark;
@@ -78,6 +78,26 @@ body {
 .leyenda { display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--fg3); font-size: 12px; margin: 10px 2px 0; }
 .leyenda i { display: inline-block; width: 3px; height: 12px; vertical-align: middle; margin-right: 6px; }
 .vacio { color: var(--fg2); padding: 24px 18px; margin: 0; }
+.vacio code { font-size: 12.5px; background: var(--chip); border-radius: 6px; padding: 1px 6px; }
+.filtros { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.filtros button {
+  font: inherit; font-size: 12.5px; color: var(--fg2); background: var(--chip); border: 1px solid var(--borde);
+  border-radius: 999px; padding: 3px 12px; cursor: pointer;
+}
+.filtros button[aria-pressed="true"] { color: var(--fg); border-color: var(--serie); }
+.filtros button.con-alerta { color: var(--crit-tx); }
+.filtros button:focus-visible, .controles button:focus-visible, summary:focus-visible { outline: 2px solid var(--serie); outline-offset: 2px; }
+.proyecto { margin-bottom: 12px; }
+.cabp { padding: 12px 18px; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; cursor: pointer; list-style: none; margin: 0; }
+.cabp::-webkit-details-marker { display: none; }
+.cabp::before { content: "▸"; color: var(--fg3); width: 1em; display: inline-block; transition: transform .15s; }
+details[open] > .cabp::before { transform: rotate(90deg); }
+.cabp .titulo { font-size: 14.5px; }
+.chips li.quieto { color: var(--fg3); }
+.nodisp { cursor: default; color: var(--fg3); }
+.nodisp::before { content: "·"; }
+.fila.sesion .nombre { font-weight: 600; }
+.fila.sesion.fin .nombre { font-weight: 500; }
 @media (max-width: 760px) {
   .grilla { grid-template-columns: minmax(0, 1fr); }
   .enc > span:not(:first-child) { display: none; }
@@ -89,7 +109,7 @@ body {
 <body>
 <div class="marco">
   <div class="barra-sup">
-    <div class="marca">hz <span>· panel de agentes</span></div>
+    <div class="marca">hz <span>· dashboard de proyectos</span></div>
     <div class="controles" role="group" aria-label="Ventana de tiempo de los carriles">
       <button type="button" data-ventana="5m">5 min</button>
       <button type="button" data-ventana="10m">10 min</button>

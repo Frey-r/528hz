@@ -1,7 +1,7 @@
 // Contrato: contratos/plugin.md §7. Actividad de los agentes (lógica pura, sin $).
 import { expect, test } from 'claude-code/testing'
 
-import { anotar, arbol, destinoCorto, glifo, hace, lanzar, lineaEstado, MAX_EVENTOS, podarEventos, PRINCIPAL, registrarTool, reportar, type Agente } from './actividad'
+import { anotar, arbol, cerrarSesion, destinoCorto, glifo, hace, lanzar, lineaEstado, MAX_EVENTOS, podarEventos, PRINCIPAL, registrarTool, reportar, rutaSnapshot, snapshot, type Agente } from './actividad'
 import type { Hooks } from './nucleo'
 
 const RAIZ = 'C:/proy/demo'
@@ -141,4 +141,26 @@ test('los eventos de cada agente se acotan a los últimos 100 y se podan con su 
   expect(ev.a.at(-1)).toEqual([MAX_EVENTOS + 19, 1])
   const vivos = lanzar([], { id: 'b', tipo: 'x', descripcion: 'tester', padre: '' }, 0)
   expect(Object.keys(podarEventos(ev, vivos))).toEqual(['b'])
+})
+
+// ── Snapshot por sesión (3.8, D-0053) ──
+
+test('al cerrar la sesión la principal termina y los subagentes vivos quedan detenidos', () => {
+  let l: Agente[] = []
+  l = registrarTool(l, undefined, { tool: 'Read', destino: 'a.go', error: false }, 1000)
+  l = lanzar(l, { id: 'ag1', tipo: 'hz:tester', descripcion: 'tester T-1', padre: '' }, 1100)
+  l = lanzar(l, { id: 'ag2', tipo: 'hz:implementador', descripcion: 'implementador T-1', padre: '' }, 1200)
+  l = reportar(l, 'ag2', 'completed', 1300)
+  const c = cerrarSesion(l, 5000)
+  expect(c.find(a => a.id === PRINCIPAL)).toMatchObject({ estado: 'terminado', visto: 5000 })
+  expect(c.find(a => a.id === 'ag1')).toMatchObject({ estado: 'detenido', visto: 5000 })
+  expect(c.find(a => a.id === 'ag2')).toMatchObject({ estado: 'terminado', visto: 1300 })
+})
+
+test('el snapshot de una sesión va a su propio archivo y lleva su id', () => {
+  expect(rutaSnapshot(RAIZ, 'abc-123')).toBe(`${RAIZ}/.harness/cache/actividad/abc-123.json`)
+  expect(rutaSnapshot(RAIZ, '../../fuera')).toBe(`${RAIZ}/.harness/cache/actividad/______fuera.json`)
+  const l = lanzar([], { id: 'ag1', tipo: 'hz:tester', descripcion: '', padre: '' }, 1000)
+  const s = snapshot('abc-123', l, { ag1: [[1000, 2]], fantasma: [[1, 0]] }, true, '2026-11-21T12:00:00.000Z')
+  expect(s).toEqual({ version: 2, sesion: 'abc-123', generado: '2026-11-21T12:00:00.000Z', terminada: true, agentes: l, eventos: { ag1: [[1000, 2]] } })
 })

@@ -10,7 +10,7 @@
 | 4. Memoria operativa | SQLite: decisiones, reglas, errores, lecciones, evals, verticales, rondas, milestones, traspasos, arriendos | `<repo>/.harness/` (`log/*.jsonl` versionado + `harness.db`) | Solo vía `hz` |
 | 5. Misiones | Trabajo largo: Génesis o Mejora | `<repo>/.harness/misiones/<id>/` | Director + humano |
 | 5b. Orquestación | Roles, relevo supervisado, conversación entre agentes, enjambres | Plugin (agentes + hooks) + tablero de tareas + SQLite | — |
-| 6. Observabilidad | Actividad en el plugin (`$.state`) → status line, pane `hz-panel` y snapshot `.harness/cache/actividad.json` → `hz panel [--json]` → `hz dashboard` (web local, árbol + carriles, D-0050) | Plugin + `<repo>/.harness/cache/` | `contratos/plugin.md` §7 |
+| 6. Observabilidad | Actividad en el plugin (`$.state`) → status line, pane `hz-panel` y un snapshot por sesión en `.harness/cache/actividad/` → `hz panel [--json]` → `hz dashboard`: **dashboard central** de todos los proyectos conectados (web local, árbol + carriles con el proyecto como raíz; D-0050, D-0053) | Plugin + `<repo>/.harness/cache/` + registro de usuario `proyectos.json` en el hogar de hz | `contratos/plugin.md` §7, `contratos/cli.md` 3.8 |
 
 ## Componentes del plugin
 

@@ -10,13 +10,16 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"hz528"
 	"hz528/internal/check"
+	"hz528/internal/dashboard"
 	"hz528/internal/exportar"
 	"hz528/internal/motor"
 	"hz528/internal/orquesta"
 	"hz528/internal/proyecto"
+	"hz528/internal/registro"
 	"hz528/internal/reglas"
 	"hz528/internal/tdd"
 )
@@ -77,7 +80,7 @@ func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 var conProyecto = map[string]bool{"reindex": true, "decision": true, "check": true, "estado": true, "tdd": true, "exportar": true,
 	"tablero": true, "arriendo": true, "tarjeta": true, "contexto": true, "salida": true, "equipo": true,
 	"error": true, "leccion": true, "eval": true, "mutar": true, "redteam": true,
-	"mision": true, "ronda": true, "compare": true, "ruido": true, "milestone": true, "informe": true, "panel": true, "dashboard": true}
+	"mision": true, "ronda": true, "compare": true, "ruido": true, "milestone": true, "informe": true, "panel": true}
 
 func run(args []string, stdout, stderr io.Writer) int {
 	g, args, err := separarGlobales(args)
@@ -105,6 +108,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdPuntero(g, stdout, stderr)
 	case "capacidad":
 		return cmdCapacidad(g, resto, stdout, stderr)
+	case "dashboard":
+		return cmdDashboard(g, resto, stdout, stderr)
 	}
 	if !conProyecto[cmd] {
 		fmt.Fprintf(stderr, "comando desconocido %q\n", cmd)
@@ -175,8 +180,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return ctx.informeCmd(resto)
 	case "panel":
 		return ctx.panel(resto)
-	case "dashboard":
-		return ctx.dashboard(resto)
 	default: // tdd
 		return ctx.tdd(resto)
 	}
@@ -250,6 +253,14 @@ func cmdActivar(g globales, args []string, out, errw io.Writer) int {
 		return errorInterno
 	}
 	fmt.Fprintln(out, "exportado  .harness/cache/hooks.json")
+	// Conectar al dashboard central nunca hace fallar la activación (D-0053).
+	if hogar, err := registro.Hogar(); err != nil {
+		fmt.Fprintln(errw, err)
+	} else if _, err := registro.Conectar(hogar, raiz, time.Now()); err != nil {
+		fmt.Fprintf(errw, "no se pudo conectar al dashboard central: %v\n", err)
+	} else {
+		fmt.Fprintln(out, "conectado  dashboard central (hz dashboard)")
+	}
 	return ok
 }
 
@@ -263,6 +274,13 @@ func cmdPuntero(g globales, out, errw io.Writer) int {
 	if p, err := proyecto.Cargar(raiz); err != nil || !p.Enabled {
 		return ok
 	}
+	// Cada inicio de sesión conecta el proyecto al dashboard central y poda los snapshots viejos (D-0053).
+	// Los errores se ignoran: el puntero nunca rompe un inicio de sesión.
+	ahora := time.Now()
+	if hogar, err := registro.Hogar(); err == nil {
+		_, _ = registro.Conectar(hogar, raiz, ahora)
+	}
+	dashboard.PodarSesiones(raiz, ahora, edadSesiones)
 	m, err := motor.Abrir(raiz)
 	if err != nil {
 		fmt.Fprintln(errw, err)
@@ -361,7 +379,8 @@ func uso(w io.Writer) {
   hz milestone proponer|marcar|lista …   el harness propone, el humano marca
   hz informe <mision> [--json] [--html f]   informe C-level (datos o página para Artifact)
   hz panel [--json]                      agentes en vivo (lo que vio el plugin) + tareas, arriendos y misiones
-  hz dashboard [--puerto 5280]           panel web local (árbol + carriles), solo 127.0.0.1
+  hz dashboard [--puerto 5280] [--detener|--desconectar|--primer-plano]
+                                         dashboard central de todos los proyectos conectados, solo 127.0.0.1
   hz regla ver RG-n                      texto de una regla general
   hz reindex                             reconstruye el índice desde los logs
   hz exportar                            regenera .harness/cache/hooks.json para el plugin

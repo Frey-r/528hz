@@ -39,7 +39,7 @@ Es personal y local: corre en tu máquina, se dimensiona según tu hardware y se
 - **Observabilidad:**
   - status line y pane `/hz-panel` con el árbol de agentes;
   - `hz panel` en la terminal;
-  - `hz dashboard`, un panel web local (solo `127.0.0.1`).
+  - `hz dashboard`: un dashboard web local (solo `127.0.0.1`) que muestra **todos tus proyectos a la vez**.
 
 ## Requisitos
 
@@ -82,6 +82,20 @@ hz tdd contrato …                     # arranca el ciclo TDD
 ```
 
 Desde Claude Code, la skill `hz:harness` guía el uso autónomo del CLI. Para los enjambres y las misiones están `hz:enjambre`, `hz:mision` e `hz:informe`.
+
+### Dashboard de proyectos
+
+```sh
+hz dashboard                 # levanta el dashboard central (si no corre) y conecta el proyecto actual
+hz dashboard --desconectar   # saca el proyecto actual del dashboard
+hz dashboard --detener       # apaga el dashboard central
+```
+
+Abre http://127.0.0.1:5280. Hay un solo dashboard por usuario; corre en segundo plano y sobrevive a cerrar la terminal. Por cada proyecto muestra:
+- su nivel y modo, las misiones con su presupuesto, las tareas TDD y los arriendos;
+- sus sesiones de Claude Code con el árbol de agentes y los carriles de actividad.
+
+Los proyectos se conectan solos al abrir una sesión de Claude Code en un proyecto con harness (o con `hz activar`). Arriba se filtra por proyecto y se elige la ventana de tiempo. Es de solo lectura.
 
 `hz --help` lista todos los subcomandos. El contrato completo está en [`contratos/cli.md`](contratos/cli.md).
 

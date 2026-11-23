@@ -256,9 +256,9 @@ Cada transición agrega un evento `tdd.<estado>` en `tdd.jsonl` (`tdd.superada` 
 # Incremento 3.6 · Observabilidad (contratos/plugin.md §7)
 
 ### `hz panel [--json]`
-- Junta lo que el plugin vio (`.harness/cache/actividad.json`) con lo que sabe el motor: tareas TDD abiertas, arriendos vigentes y misiones activas con su gasto.
-- Sin `--json`: el árbol de agentes por supervisor, en ≤40 líneas, con los agentes vivos primero. Sin snapshot: «sin actividad registrada (el plugin la escribe en .harness/cache/actividad.json)».
-- `--json`: `{ generado, actividad_generada, agentes: [...], tareas: [...], arriendos, misiones: [{ id, gasto, usd_max, sin_presupuesto }] }`. Es el contrato de datos del dashboard.
+- Junta lo que el plugin vio (los snapshots de sesión de `.harness/cache/actividad/`, ver 3.8) con lo que sabe el motor: tareas TDD abiertas, arriendos vigentes y misiones activas con su gasto.
+- Sin `--json`: por cada sesión, una línea `sesión <8 primeros del id> · activa|inactiva|terminada` y debajo su árbol de agentes por supervisor, con los vivos primero; todo en ≤40 líneas. Las sesiones activas van primero. Sin snapshots: «sin actividad registrada (el plugin la escribe en .harness/cache/actividad/)».
+- `--json`: `{ generado, actividad_generada, sesiones: [{ id, generado, terminada, inactiva, agentes }], agentes: [...], tareas: [...], arriendos, misiones: [{ id, gasto, usd_max, sin_presupuesto }] }`. `agentes` junta los de todas las sesiones y cada uno lleva `sesion`; `actividad_generada` es el snapshot más reciente.
 
 # Incremento 3.7 · Dashboard web local (D-0050)
 
@@ -271,3 +271,48 @@ Cada transición agrega un evento `tdd.<estado>` en `tdd.jsonl` (`tdd.superada` 
   - sin actividad: un estado vacío que explica de dónde salen los datos.
 - `GET /api/panel`: el mismo JSON de `hz panel --json` más `eventos`.
 - Lee el motor y `actividad.json` en cada petición; reutiliza una sola conexión al motor (RG-1).
+
+> **Reemplazado en 3.8:** el dashboard pasa a ser central y multi-proyecto; la vista, las rutas y la protección se mantienen y se extienden abajo.
+
+# Incremento 3.8 · Dashboard central multi-proyecto (D-0053)
+
+### Registro de proyectos
+- Archivo de usuario `proyectos.json` en el **hogar de hz**: `os.UserConfigDir()/hz` (en Windows `%AppData%\hz`), o la carpeta de `HZ_HOGAR` si está definida. Forma: `{ "version": 1, "proyectos": [{ "raiz": "<ruta absoluta>", "conectado": "<RFC3339>" }] }`.
+- Las raíces se guardan absolutas y limpias; en Windows se comparan sin distinguir mayúsculas. Conectar es **idempotente**: si el proyecto ya está, no reescribe el archivo. La escritura es atómica (temporal + rename). Un archivo que falta es un registro vacío.
+- Cada proyecto tiene un `id` estable: los 8 primeros hex del sha256 de su raíz normalizada. Su nombre visible es la carpeta; si dos proyectos tienen la misma carpeta, `padre/carpeta`.
+- **Quién conecta:**
+  - `hz puntero` (corre en cada SessionStart): conecta el proyecto y poda los snapshots de sesión con más de 24 h sin escribir. Cualquier error se ignora: el puntero nunca falla.
+  - `hz activar`: conecta el proyecto al activarlo.
+  - `hz dashboard` dentro de un proyecto.
+
+### Snapshots por sesión (los escribe el plugin, contratos/plugin.md §7)
+- `.harness/cache/actividad/<sessionId>.json`: `{ version: 2, sesion, generado, terminada, agentes: [...], eventos: {...} }`.
+- Una sesión es **inactiva** si no está terminada y su `generado` tiene más de 30 min. Los agentes de una sesión terminada o inactiva no cuentan como vivos.
+- Un archivo ilegible (por ejemplo, leído a medio escribir) se omite: nunca rompe el panel. El `actividad.json` anterior a 3.8 se ignora.
+
+### `hz dashboard [--puerto 5280] [--primer-plano | --detener | --desconectar]`
+Funciona dentro o fuera de un proyecto. Las opciones son excluyentes; un argumento suelto, un puerto fuera de 1–65535 o dos opciones juntas → código 2.
+- **Sin opciones:** conecta el proyecto del cwd (si hay uno) y se asegura de que el dashboard central corre en `127.0.0.1:<puerto>`:
+  - `GET /api/salud` responde `{ servicio: "hz-dashboard", version, pid, binario }` con el mismo `binario` que este `hz` (tamaño + fecha de modificación del ejecutable) → no lanza nada;
+  - responde con otro `binario` (se recompiló `hz`) → termina ese `pid` y lanza el nuevo;
+  - no responde → lanza `hz dashboard --primer-plano --puerto <n>` **desacoplado de la terminal** (sobrevive a la sesión), con stdout y stderr en `dashboard.log` del hogar, y espera hasta 5 s a que `/api/salud` responda; si no, código 4 nombrando el log;
+  - responde otra cosa (el puerto lo ocupa otro servicio) → código 4: «el puerto <n> lo ocupa otro servicio: usa --puerto».
+  - Salida: `hz dashboard en http://127.0.0.1:<puerto>` y, si conectó un proyecto, `proyecto <nombre> conectado`.
+- `--primer-plano`: sirve en primer plano hasta Ctrl+C (es lo que corre el proceso desacoplado). Puerto ocupado → código 4 «no se pudo escuchar».
+- `--detener`: si `/api/salud` confirma `hz-dashboard`, termina su `pid` → `hz dashboard detenido`. Si no hay dashboard: `no hay dashboard corriendo` y código 0.
+- `--desconectar`: saca el proyecto del cwd del registro → `proyecto <nombre> desconectado`. Fuera de un proyecto → código 3.
+
+### Rutas (solo GET/HEAD; mismo chequeo de `Host` y cabeceras que 3.7)
+- `GET /api/salud`: la identidad del servidor (arriba).
+- `GET /`: la página. Cada 2 s pide el fragmento; recuerda la ventana, el filtro y los proyectos que el humano plegó o desplegó (almacenamiento local, opcional).
+- `GET /fragmento?ventana=5m|10m|30m&proyecto=<id>`:
+  - **cabecera global:** `N proyectos · S sesiones activas · X agentes vivos · Y alertas`, y chips para filtrar (`todos` y uno por proyecto, con `aria-pressed`). Un `proyecto` desconocido muestra todos;
+  - **un bloque por proyecto**, primero los que tienen alertas, luego los que tienen agentes vivos, luego por actividad más reciente y por nombre:
+    - cabecera: nombre · nivel · modo, misiones con su barra de presupuesto, tareas TDD y arriendos;
+    - si tiene agentes vivos o eventos dentro de la ventana, se despliega el **árbol + carriles** de 3.7 con una raíz por sesión (`sesión <8 primeros> · activa|inactiva|terminada`, con los carriles de la sesión principal) y debajo sus subagentes por supervisor. Solo se muestran las sesiones activas y las que tuvieron eventos en la ventana;
+    - si no, queda plegado en una línea con «sin actividad»;
+    - si no se puede leer (carpeta borrada, sin harness o desactivado, motor ilegible): una línea «no disponible: <motivo>».
+  - **alertas:** agentes con `seguidos ≥ 3` en sesiones activas, agentes `fallido` con eventos en la ventana y misiones sin presupuesto.
+  - Sin proyectos conectados: un estado vacío que explica cómo conectar uno.
+- `GET /api/panel`: `{ generado, proyectos: [{ id, nombre, raiz, disponible, error, nivel, modo, tareas, arriendos, misiones, sesiones: [{ id, generado, terminada, inactiva, agentes, eventos }] }] }`.
+- **RG-1:** relee el registro en cada petición (es un archivo pequeño); abre un motor por proyecto al primer uso y lo reutiliza; lo cierra cuando el proyecto sale del registro o falla (se reabre en la siguiente petición).

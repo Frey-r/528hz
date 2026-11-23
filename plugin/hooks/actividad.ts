@@ -1,5 +1,5 @@
 // Actividad de los agentes (contratos/plugin.md §7): lógica pura, sin $. La guarda el mod en $.state,
-// la dibuja el pane hz-panel y la escribe el snapshot .harness/cache/actividad.json.
+// la dibuja el pane hz-panel y la escribe el snapshot de la sesión en .harness/cache/actividad/<sesión>.json.
 import type { Agente, EstadoAgente as Estado } from '../types'
 import { relativizar, tareaDeDescripcion, type Hooks } from './nucleo'
 
@@ -169,4 +169,20 @@ export function anotar(ev: Eventos, id: string, t: number, tipo: number): Evento
 export function podarEventos(ev: Eventos, lista: Agente[]): Eventos {
   const ids = new Set(lista.map(a => a.id))
   return Object.fromEntries(Object.entries(ev).filter(([id]) => ids.has(id)))
+}
+
+// Snapshot por sesión (contratos/plugin.md §7, 3.8, D-0053): cada sesión escribe su propio archivo.
+
+/** Al terminar la sesión: la principal queda terminada y los subagentes vivos, detenidos. */
+export function cerrarSesion(lista: Agente[], ahora: number): Agente[] {
+  return lista.map(a => (vivo(a) ? { ...a, estado: a.id === PRINCIPAL ? 'terminado' : 'detenido', visto: ahora } : a))
+}
+
+/** Ruta del snapshot de una sesión; el id se limpia para que nunca salga de la carpeta. */
+export function rutaSnapshot(raiz: string, sesion: string): string {
+  return `${raiz}/.harness/cache/actividad/${sesion.replace(/[^A-Za-z0-9_-]/g, '_')}.json`
+}
+
+export function snapshot(sesion: string, lista: Agente[], ev: Eventos, terminada: boolean, generado: string) {
+  return { version: 2, sesion, generado, terminada, agentes: lista, eventos: podarEventos(ev, lista) }
 }

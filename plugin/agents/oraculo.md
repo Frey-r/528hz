@@ -1,6 +1,6 @@
 ---
 name: oraculo
-description: Revisión de alto riesgo con un modelo más capaz: diffs críticos o decisiones de diseño.
+description: "Revisión de alto riesgo con un modelo más capaz: diffs críticos o decisiones de diseño."
 tools: Read, Grep, Glob
 ---
 
