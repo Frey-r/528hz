@@ -186,3 +186,114 @@ func TestRespaldoAntiguoSeAvisa(t *testing.T) {
 		t.Fatalf("el respaldo único de versiones previas se avisa y no se borra: %q", r.Avisos)
 	}
 }
+
+// reclamoDe es el archivo con que un proceso reclama la reparación de un huérfano (contratos/cli.md, D-0055).
+func reclamoDe(raiz, rel string) string {
+	return strings.TrimSuffix(RutaRespaldo(raiz, rel), ".bak") + ".recuperando"
+}
+
+func escribir(t *testing.T, ruta, txt string) {
+	t.Helper()
+	if err := os.WriteFile(ruta, []byte(txt), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHuerfanoEnReparacionNoSeToca(t *testing.T) {
+	raiz := proyectoMutable(t)
+	candado(t, raiz, "calc.go", fuenteCalc, pidMuerto, time.Now())
+	mutante := Aplicar(fuenteCalc, Sitios(fuenteCalc, ".go")[0])
+	escribir(t, filepath.Join(raiz, "calc.go"), mutante)
+	reclamo := reclamoDe(raiz, "calc.go")
+	escribir(t, reclamo, "")
+	r, err := Ejecutar(raiz, "otro.go", `grep -q "return true" otro.go`, 10, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if leer(t, raiz, "calc.go") != mutante || !existe(rutaCandado(raiz, "calc.go")) || !existe(RutaRespaldo(raiz, "calc.go")) || !existe(reclamo) {
+		t.Fatal("un huérfano que otro proceso está reparando (reclamo vigente) no se toca")
+	}
+	if len(r.Avisos) != 0 {
+		t.Fatalf("un reclamo vigente no se avisa: %q", r.Avisos)
+	}
+	if _, err := Ejecutar(raiz, "calc.go", cmdAmbos, 10, time.Minute); !errors.Is(err, ErrEnCurso) || !strings.Contains(err.Error(), "calc.go") || !strings.Contains(err.Error(), "reintenta") {
+		t.Fatalf("medir el archivo mientras se repara se rechaza con código 1 y pide reintentar: %v", err)
+	}
+	viejo := time.Now().Add(-2 * time.Minute)
+	if err := os.Chtimes(reclamo, viejo, viejo); err != nil {
+		t.Fatal(err)
+	}
+	r, err = Ejecutar(raiz, "otro.go", `grep -q "return true" otro.go`, 10, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Avisos) != 1 || !strings.Contains(r.Avisos[0], filepath.Base(reclamo)) || !strings.Contains(r.Avisos[0], "calc.go") {
+		t.Fatalf("un reclamo vencido se avisa nombrándolo junto al archivo: %q", r.Avisos)
+	}
+	if leer(t, raiz, "calc.go") != mutante || !existe(reclamo) {
+		t.Fatal("un reclamo vencido no se borra solo ni se repara encima")
+	}
+}
+
+func TestReparacionConCandadoVistoAntesNoPisaUnaMedicionNueva(t *testing.T) {
+	raiz := proyectoMutable(t)
+	lock := rutaCandado(raiz, "calc.go")
+	candado(t, raiz, "calc.go", fuenteCalc, pidMuerto, time.Now())
+	visto, _, err := leerCandado(lock) // lo que leyó un proceso lento antes de que otro reparara el huérfano
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Otro proceso ya reparó el huérfano, y una medición nueva y viva tomó calc.go y escribió su mutante.
+	candado(t, raiz, "calc.go", fuenteCalc, os.Getpid(), time.Now())
+	mutante := Aplicar(fuenteCalc, Sitios(fuenteCalc, ".go")[0])
+	escribir(t, filepath.Join(raiz, "calc.go"), mutante)
+	if aviso := reparar(raiz, lock, visto); aviso != "" {
+		t.Fatalf("con un candado que ya no es el visto, no hay nada que avisar: %q", aviso)
+	}
+	if leer(t, raiz, "calc.go") != mutante {
+		t.Fatal("el proceso lento no restaura encima del mutante de la medición viva")
+	}
+	if !existe(lock) || !existe(RutaRespaldo(raiz, "calc.go")) {
+		t.Fatal("el proceso lento no borra el candado ni el respaldo de la medición viva")
+	}
+	if existe(reclamoDe(raiz, "calc.go")) {
+		t.Fatal("el reclamo se suelta al terminar")
+	}
+	// Con el candado que sí es el huérfano visto, la reparación procede y no deja el reclamo.
+	candado(t, raiz, "calc.go", fuenteCalc, pidMuerto, time.Now())
+	visto, _, err = leerCandado(lock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if aviso := reparar(raiz, lock, visto); !strings.Contains(aviso, "restaurado calc.go") {
+		t.Fatalf("el huérfano visto se restaura y se avisa: %q", aviso)
+	}
+	if leer(t, raiz, "calc.go") != fuenteCalc || existe(lock) || existe(RutaRespaldo(raiz, "calc.go")) || existe(reclamoDe(raiz, "calc.go")) {
+		t.Fatal("tras reparar quedan el original y ningún candado, respaldo ni reclamo")
+	}
+}
+
+func TestCandadoIlegibleSeExplicaSinPidInventado(t *testing.T) {
+	raiz := proyectoMutable(t)
+	lock := rutaCandado(raiz, "calc.go")
+	if err := os.MkdirAll(filepath.Dir(lock), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	escribir(t, lock, "") // recién creado en exclusiva por otra medición, todavía sin contenido
+	_, err := Ejecutar(raiz, "calc.go", cmdAmbos, 10, time.Minute)
+	if !errors.Is(err, ErrEnCurso) || !strings.Contains(err.Error(), "calc.go") || !strings.Contains(err.Error(), "reintenta") || strings.Contains(err.Error(), "pid 0") {
+		t.Fatalf("un candado que se está escribiendo pide reintentar, sin pid inventado: %v", err)
+	}
+	escribir(t, lock, "{roto")
+	viejo := time.Now().Add(-2 * time.Minute)
+	if err := os.Chtimes(lock, viejo, viejo); err != nil {
+		t.Fatal(err)
+	}
+	_, err = Ejecutar(raiz, "calc.go", cmdAmbos, 10, time.Minute)
+	if !errors.Is(err, tdd.ErrVerificacion) || errors.Is(err, ErrEnCurso) || !strings.Contains(err.Error(), filepath.Base(lock)) {
+		t.Fatalf("un candado ilegible y vencido se nombra para que el humano lo borre: %v", err)
+	}
+	if leer(t, raiz, "calc.go") != fuenteCalc {
+		t.Fatal("los rechazos no tocan el archivo")
+	}
+}

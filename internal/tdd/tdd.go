@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -331,12 +332,19 @@ func (q Maquina) Superar(id, por, decision, motivo, quien string) error {
 	if !supera[tm.Estado] {
 		return verificacion("la tarea que supera, %s, está en %s; tiene que estar en VERDE o después: `hz tdd verde %s`", por, strings.ToUpper(tm.Estado), por)
 	}
+	if err := respalda(q.Raiz, t, tm); err != nil {
+		return err
+	}
 	d, err := q.M.VerDecision(decision)
 	if errors.Is(err, motor.ErrNoExiste) {
 		return verificacion("la decisión %s no existe; regístrala antes con `hz decision nueva --que … --por-que … --decidio humano|agente_aprobado`", decision)
 	}
 	if err != nil {
 		return err
+	}
+	if d.Decidio != "humano" && d.Decidio != "agente_aprobado" {
+		return verificacion("la decisión %s la decidió %s: superar deja de verificar los tests bloqueados de %s, así que exige una decisión humano o agente_aprobado; pide la aprobación del humano y registra esa decisión",
+			d.ID, d.Decidio, id)
 	}
 	if strings.TrimSpace(motivo) == "" {
 		motivo = d.Que
@@ -347,6 +355,46 @@ func (q Maquina) Superar(id, por, decision, motivo, quien string) error {
 		return err
 	}
 	return ExportarHooks(q.M, q.Raiz)
+}
+
+// respalda exige la evidencia de D-0054: algún test bloqueado de t cambió y tm bloquea cada uno de los que
+// cambiaron con su contenido actual. Como hz salida deja de verificar una tarea superada, sin esto superar
+// serviría para saltarse a su verificador.
+func respalda(raiz string, t, tm motor.Tarea) error {
+	nuevos := make(map[string]string, len(tm.TestsBloqueados))
+	for _, tb := range tm.TestsBloqueados {
+		nuevos[rutaTest(tb.Ruta)] = tb.SHA256
+	}
+	cambiados := 0
+	for _, tb := range t.TestsBloqueados {
+		h, err := HashArchivo(filepath.Join(raiz, filepath.FromSlash(tb.Ruta)))
+		if err == nil && h == tb.SHA256 {
+			continue
+		}
+		cambiados++
+		bloqueado, ok := nuevos[rutaTest(tb.Ruta)]
+		switch {
+		case err != nil:
+			return verificacion("el test %s de %s ya no existe o no se puede leer: %s no puede respaldarlo con su contenido actual", tb.Ruta, t.ID, tm.ID)
+		case !ok:
+			return verificacion("el test %s de %s cambió y %s no lo bloquea: supera %s con la tarea que lo regeneró y lo bloqueó", tb.Ruta, t.ID, tm.ID, t.ID)
+		case bloqueado != h:
+			return verificacion("el test %s cambió después de que %s lo bloqueara: su contenido actual no es el que %s respalda", tb.Ruta, tm.ID, tm.ID)
+		}
+	}
+	if cambiados == 0 {
+		return verificacion("ningún test bloqueado de %s cambió: no hay nada que superar; si la tarea terminó, entrégala con `hz salida --rol verificador --tarea %s`", t.ID, t.ID)
+	}
+	return nil
+}
+
+// rutaTest normaliza la ruta de un test bloqueado para compararla: limpia, con / y, en Windows, sin mayúsculas.
+func rutaTest(r string) string {
+	r = path.Clean(filepath.ToSlash(r))
+	if runtime.GOOS == "windows" {
+		r = strings.ToLower(r)
+	}
+	return r
 }
 
 // ExportarHooks regenera .harness/cache/hooks.json v2 (contratos/plugin.md); vive en el paquete exportar.
