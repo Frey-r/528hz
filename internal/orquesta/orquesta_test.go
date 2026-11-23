@@ -252,3 +252,56 @@ func TestSalidaSinTestsBloqueadosNiEvidencia(t *testing.T) {
 		t.Fatalf("sin evidencia ejecutada en verde el verificador no sale: %v", err)
 	}
 }
+
+func TestSalidaDeTareaSuperadaNoReverificaHashes(t *testing.T) {
+	m, raiz := armarProyecto(t)
+	q := tdd.Maquina{M: m, Raiz: raiz}
+	if err := q.Rojo("T-1", []string{"tests/x_test.txt"}, "echo 'AssertionError'; exit 1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Verde("T-1", "exit 0"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(raiz, "tests", "x_test.txt"), []byte("assert golden regenerado\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Salida(m, raiz, "verificador", "T-1"); err == nil || !strings.Contains(err.Error(), "x_test.txt") {
+		t.Fatalf("antes de superarla, el golden regenerado bloquea la salida: %v", err)
+	}
+	if err := q.Contrato("T-2", "regenera el golden", "contratos/x.md", true, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Rojo("T-2", []string{"tests/x_test.txt"}, "echo 'AssertionError'; exit 1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Verde("T-2", "exit 0"); err != nil {
+		t.Fatal(err)
+	}
+	d, err := m.NuevaDecision(motor.Decision{Que: "regenerar el golden", PorQue: "aprobación visual del humano", Decidio: "humano"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Superar("T-1", "T-2", d, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	for _, rol := range []string{"verificador", "implementador"} {
+		nota, err := SalidaConNota(m, raiz, rol, "T-1")
+		if err != nil {
+			t.Fatalf("una tarea superada sale sin volver a comprobar hashes ni la meta-eval (%s): %v", rol, err)
+		}
+		if !strings.Contains(nota, "superada por T-2 ("+d+")") {
+			t.Fatalf("la salida informa quién la superó y con qué decisión (%s): %q", rol, nota)
+		}
+	}
+	if err := Salida(m, raiz, "verificador", "T-1"); err != nil {
+		t.Fatalf("Salida y SalidaConNota coinciden: %v", err)
+	}
+	tareas, err := m.Tareas()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tareas = append(tareas, motor.Tarea{ID: "T-9", Estado: "contrato", BloqueadaPor: []string{"T-1"}})
+	if listas := ids(FrenteListo(tareas)); !strings.Contains(listas, "T-9") {
+		t.Fatalf("una dependencia superada ya no bloquea: frente = %s", listas)
+	}
+}

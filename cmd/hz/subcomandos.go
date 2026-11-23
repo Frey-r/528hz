@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -189,7 +190,7 @@ func (c contexto) estado() int {
 	}
 	abiertas := make([]motor.Tarea, 0, len(tareas))
 	for _, t := range tareas {
-		if t.Estado != "cerrada" && t.Estado != "verificada" {
+		if t.Estado != "cerrada" && t.Estado != "verificada" && t.Estado != "superada" {
 			abiertas = append(abiertas, t)
 		}
 	}
@@ -245,7 +246,7 @@ func misionesActivas(raiz string) []estadoMision {
 
 func (c contexto) tdd(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(c.err, "uso: hz tdd contrato|rojo|verde|refactor|estado …")
+		fmt.Fprintln(c.err, "uso: hz tdd contrato|rojo|verde|refactor|superar|estado …")
 		return usoInvalido
 	}
 	q := tdd.Maquina{M: c.m, Raiz: c.raiz, CmdTest: c.perfil.Comandos["test"]}
@@ -286,11 +287,55 @@ func (c contexto) tdd(args []string) int {
 			paso = q.Refactor
 		}
 		return c.transicion(paso(pos[0], *cmd), pos[0], strings.ToUpper(sub))
+	case "superar":
+		return c.tddSuperar(q, fs, resto)
 	case "estado":
 		return c.tddEstado(resto)
 	}
 	fmt.Fprintf(c.err, "subcomando desconocido: tdd %s\n", sub)
 	return usoInvalido
+}
+
+const usoSuperar = `uso: hz tdd superar T-n --por T-m --decision D-NNNN [--motivo "…"] [--quien id]
+  Marca T-n (en VERDE, REFACTOR o VERIFICADA) como SUPERADA por T-m (en VERDE o después), con una decisión registrada.
+  No toca ni re-bloquea tests: deja constancia en tdd.jsonl y hz salida deja de verificar los hashes de T-n.`
+
+// tddSuperar registra que otra tarea reemplazó a T-n (p. ej. regeneró su golden con una decisión aprobada).
+func (c contexto) tddSuperar(q tdd.Maquina, fs *flag.FlagSet, args []string) int {
+	por := fs.String("por", "", "tarea que la supera (en VERDE o después)")
+	decision := fs.String("decision", "", "decisión registrada que lo justifica (D-NNNN)")
+	motivo := fs.String("motivo", "", "por qué (por defecto, el «qué» de la decisión)")
+	quien := fs.String("quien", os.Getenv("HZ_SESION"), "quién la supera (agente o sesión)")
+	fs.SetOutput(io.Discard) // el uso lo imprime este comando, una sola vez
+	pos, err := parsearIntercalado(fs, args)
+	if errors.Is(err, flag.ErrHelp) {
+		fmt.Fprintln(c.out, usoSuperar)
+		fs.SetOutput(c.out)
+		fs.PrintDefaults()
+		return ok
+	}
+	if err != nil || len(pos) != 1 || *por == "" || *decision == "" {
+		if err != nil {
+			fmt.Fprintln(c.err, err)
+		} else {
+			fmt.Fprintln(c.err, "faltan argumentos: T-n, --por y --decision son obligatorios")
+		}
+		fmt.Fprintln(c.err, usoSuperar)
+		return usoInvalido
+	}
+	if err := q.Superar(pos[0], *por, *decision, *motivo, *quien); err != nil {
+		return c.codigo(err)
+	}
+	fmt.Fprintf(c.out, "%s → SUPERADA por %s (%s)\n", strings.ToUpper(pos[0]), strings.ToUpper(*por), strings.ToUpper(*decision))
+	return ok
+}
+
+// superadaPor describe la superación de una tarea para las listas ("" si no está superada).
+func superadaPor(t motor.Tarea) string {
+	if t.Superacion == nil {
+		return ""
+	}
+	return fmt.Sprintf("superada por %s (%s)", t.Superacion.Por, t.Superacion.Decision)
 }
 
 func (c contexto) transicion(err error, id, estado string) int {
@@ -311,6 +356,10 @@ func (c contexto) tddEstado(args []string) int {
 			return c.emitirJSON(t)
 		}
 		fmt.Fprintf(c.out, "%s · %s · %s\ncontrato: %s (aprobado: %s)\n", t.ID, strings.ToUpper(t.Estado), t.Titulo, t.ContratoRuta, siNo(t.ContratoOKEn != ""))
+		if s := t.Superacion; s != nil {
+			fmt.Fprintf(c.out, "%s el %s desde %s · decidió: %s · quién: %s\nmotivo: %s\n",
+				superadaPor(t), s.En, strings.ToUpper(s.EstadoPrevio), s.Decidio, s.Quien, recortar(s.Motivo, 200))
+		}
 		for _, tb := range t.TestsBloqueados {
 			fmt.Fprintf(c.out, "bloqueado: %s (%s…)\n", tb.Ruta, tb.SHA256[:12])
 		}
@@ -330,7 +379,11 @@ func (c contexto) tddEstado(args []string) int {
 		fmt.Fprintln(c.out, "sin tareas TDD")
 	}
 	for _, t := range ts {
-		fmt.Fprintf(c.out, "%s · %s · %s\n", t.ID, strings.ToUpper(t.Estado), recortar(t.Titulo, 80))
+		linea := fmt.Sprintf("%s · %s · %s", t.ID, strings.ToUpper(t.Estado), recortar(t.Titulo, 80))
+		if s := superadaPor(t); s != "" {
+			linea += " · " + s
+		}
+		fmt.Fprintln(c.out, linea)
 	}
 	return ok
 }

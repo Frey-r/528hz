@@ -27,6 +27,13 @@ type Activa struct {
 	TestsBloqueados []string `json:"tests_bloqueados"`
 }
 
+// Superada es una tarea reemplazada por otra con una decisión registrada (`hz tdd superar`); no bloquea tests.
+type Superada struct {
+	ID       string `json:"id"`
+	Por      string `json:"por"`
+	Decision string `json:"decision"`
+}
+
 // ReglaExportada es la parte de una RD que necesita el hook.
 type ReglaExportada struct {
 	ID           string   `json:"id"`
@@ -46,6 +53,7 @@ type Hooks struct {
 	Resumen         []string            `json:"resumen"`
 	TareasActivas   []Activa            `json:"tareas_activas"`
 	TestsBloqueados []string            `json:"tests_bloqueados"`
+	TareasSuperadas []Superada          `json:"tareas_superadas"`
 	Protegidos      []string            `json:"protegidos"`
 	ReglasDuras     []ReglaExportada    `json:"reglas_duras"`
 	Secretos        []string            `json:"secretos"`
@@ -73,7 +81,7 @@ type ArriendoExportado struct {
 // Construir arma el contenido sin escribirlo.
 func Construir(m *motor.Motor, raiz string) (Hooks, error) {
 	h := Hooks{Version: 2, Generado: time.Now().Format(time.RFC3339), Nivel: "N1",
-		TareasActivas: []Activa{}, TestsBloqueados: []string{}, Protegidos: proyecto.Protegidos,
+		TareasActivas: []Activa{}, TestsBloqueados: []string{}, TareasSuperadas: []Superada{}, Protegidos: proyecto.Protegidos,
 		ReglasDuras: []ReglaExportada{}, Secretos: []string{}, Arriendos: []ArriendoExportado{}, Lecciones: []LeccionExportada{}, Misiones: []MisionExportada{}}
 	perfil, err := proyecto.Cargar(raiz)
 	switch {
@@ -103,7 +111,11 @@ func Construir(m *motor.Motor, raiz string) (Hooks, error) {
 		return h, err
 	}
 	for _, t := range tareas {
-		if t.Estado == "cerrada" || t.Estado == "verificada" {
+		if t.Estado == "superada" && t.Superacion != nil {
+			h.TareasSuperadas = append(h.TareasSuperadas, Superada{ID: t.ID, Por: t.Superacion.Por, Decision: t.Superacion.Decision})
+			continue
+		}
+		if t.Estado == "cerrada" || t.Estado == "verificada" || t.Estado == "superada" {
 			continue
 		}
 		a := Activa{ID: t.ID, Estado: t.Estado, TestsBloqueados: []string{}}
@@ -187,6 +199,17 @@ func resumen(proyectoNombre string, h Hooks, decisiones int) []string {
 			partes = append(partes, t.ID+" "+strings.ToUpper(t.Estado))
 		}
 		r = append(r, "Tareas TDD activas: "+strings.Join(partes, ", ")+". Los tests en ROJO+ están bloqueados.")
+	}
+	if len(h.TareasSuperadas) > 0 {
+		partes := make([]string, 0, len(h.TareasSuperadas))
+		for i, t := range h.TareasSuperadas {
+			if i == 6 {
+				partes = append(partes, fmt.Sprintf("… +%d", len(h.TareasSuperadas)-6))
+				break
+			}
+			partes = append(partes, fmt.Sprintf("%s por %s (%s)", t.ID, t.Por, t.Decision))
+		}
+		r = append(r, "Tareas TDD superadas (ya no bloquean tests): "+strings.Join(partes, ", ")+".")
 	}
 	r = append(r,
 		"Trabajo test-driven: CONTRATO → ROJO → VERDE → REFACTOR con `hz tdd …` (RG-2).",

@@ -227,7 +227,10 @@ func (c contexto) mutar(args []string) int {
 		}
 		idTarea = t.ID // el mismo id con que hz salida busca la medición
 	}
-	r, err := mutar.Ejecutar(c.raiz, *archivo, *cmd, *max, *limite)
+	r, err := mutar.Ejecutar(c.raiz, rel, *cmd, *max, *limite)
+	for _, a := range r.Avisos { // huérfanos de corridas interrumpidas: se avisan aunque la medición falle
+		fmt.Fprintln(c.err, "aviso: "+a)
+	}
 	if err != nil {
 		return c.codigo(err)
 	}

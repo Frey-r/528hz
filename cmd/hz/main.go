@@ -21,7 +21,7 @@ import (
 	"hz528/internal/tdd"
 )
 
-const version = "0.1.0"
+const version = "0.2.0"
 
 // Códigos de salida del contrato.
 const (
@@ -341,7 +341,7 @@ func uso(w io.Writer) {
   hz estado [--json]                     resumen para retomar (≤40 líneas)
   hz check [--json]                      estructura orientada a agentes
   hz decision nueva|buscar|ver …         registro cuándo/qué/por qué (RG-3)
-  hz tdd contrato|rojo|verde|refactor|estado …   ciclo TDD (RG-2)
+  hz tdd contrato|rojo|verde|refactor|superar|estado …   ciclo TDD (RG-2)
   hz tablero [--listo] [--celula c]      tareas, dependencias y frente listo
   hz arriendo tomar|soltar|lista …       exclusividad de archivos entre agentes
   hz tarjeta registrar|ultima …          tarjetas de traspaso entre roles (≤30 líneas)

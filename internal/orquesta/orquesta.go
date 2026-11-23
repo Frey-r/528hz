@@ -18,8 +18,8 @@ import (
 	"hz528/internal/tdd"
 )
 
-// posteriores al VERDE: una dependencia en estos estados ya no bloquea.
-var despuesDeVerde = map[string]bool{"verde": true, "refactor": true, "verificada": true, "cerrada": true}
+// posteriores al VERDE: una dependencia en estos estados ya no bloquea (una superada pasó por VERDE).
+var despuesDeVerde = map[string]bool{"verde": true, "refactor": true, "verificada": true, "cerrada": true, "superada": true}
 
 // FrenteListo devuelve las tareas en CONTRATO cuyas dependencias están en VERDE o después (D-0028).
 func FrenteListo(tareas []motor.Tarea) []motor.Tarea {
@@ -156,13 +156,27 @@ func noSale(formato string, args ...any) error {
 
 // Salida verifica de forma determinista si un rol cumplió su criterio de salida (D-0015).
 func Salida(m *motor.Motor, raiz, nombre, tarea string) error {
+	_, err := SalidaConNota(m, raiz, nombre, tarea)
+	return err
+}
+
+// SalidaConNota es Salida más una nota para quien la pide; hoy solo la lleva una tarea superada, cuyos
+// tests bloqueados ya no se verifican (los reemplazó otra tarea con una decisión registrada).
+func SalidaConNota(m *motor.Motor, raiz, nombre, tarea string) (string, error) {
 	if _, ok := roles[nombre]; !ok {
-		return fmt.Errorf("%w %q", ErrRolDesconocido, nombre)
+		return "", fmt.Errorf("%w %q", ErrRolDesconocido, nombre)
 	}
 	t, err := m.Tarea(tarea)
 	if err != nil {
-		return noSale("la tarea %s no existe", tarea)
+		return "", noSale("la tarea %s no existe", tarea)
 	}
+	if s := t.Superacion; t.Estado == "superada" && s != nil && (nombre == "implementador" || nombre == "verificador") {
+		return fmt.Sprintf("superada por %s (%s): sus tests bloqueados ya no se verifican; la verificación vigente es la de %s", s.Por, s.Decision, s.Por), nil
+	}
+	return "", salidaPorRol(m, raiz, nombre, t)
+}
+
+func salidaPorRol(m *motor.Motor, raiz, nombre string, t motor.Tarea) error {
 	switch nombre {
 	case "contratista":
 		if _, err := os.Stat(filepath.Join(raiz, t.ContratoRuta)); err != nil {

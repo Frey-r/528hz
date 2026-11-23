@@ -71,7 +71,7 @@ Una línea por verificación (`✓` / `✗ <motivo>`). Termina con código 1 si 
 Resumen de ≤40 líneas para retomar:
 - proyecto, nivel y modo;
 - conteo de decisiones y las 3 últimas;
-- tareas TDD abiertas con su estado;
+- tareas TDD abiertas con su estado (las `verificada`, `cerrada` y `superada` no cuentan como abiertas);
 - misión activa, si `misiones/*/estado.json` existe.
 
 ### `hz tdd …`: máquina de estados por tarea
@@ -82,14 +82,22 @@ Resumen de ≤40 líneas para retomar:
 | `rojo T-n --tests a,b [--cmd "…"]` | Estado `contrato` | Corre `--cmd` (o `comandos.test` de `harness.yaml`). **Exige** salida ≠ 0 **y** que no aparezca ningún patrón de error de compilación, import o sintaxis. Bloquea los tests (sha256) → estado `rojo` | Los tests pasan → «no hay ROJO». Error de import o sintaxis → «falla por la razón equivocada» |
 | `verde T-n [--cmd "…"]` | Estado `rojo` | Verifica que los tests bloqueados no cambiaron y corre el comando, que debe salir con 0 → estado `verde` | Test bloqueado modificado → código 1 nombrando el archivo. El comando falla → código 1 |
 | `refactor T-n [--cmd "…"]` | Estado `verde` o `refactor` | Igual que `verde` → estado `refactor` | Igual |
+| `superar T-n --por T-m --decision D-NNNN [--motivo "…"] [--quien id]` | T-n en `verde`, `refactor` o `verificada` (pasó por VERDE). T-m existe, es otra tarea y está en `verde` o en un estado posterior, sin estar superada. D-NNNN existe en el log de decisiones | T-n → estado `superada`. **No toca ni re-bloquea tests**: solo deja constancia con el evento `tdd.superada` (foto de la tarea + `superacion: {por, decision, decidio, motivo, quien, en, estado_previo}`). `motivo` por defecto es el «qué» de la decisión; `quien` sale de `--quien` o de `HZ_SESION`; `decidio` se copia de la decisión | Código 1 con remediación: T-n no existe; T-n en CONTRATO o ROJO («no sirve para saltarse un ROJO»); T-n ya superada (nombra a T-m y la decisión); T-m no existe, es la misma T-n, no llegó a VERDE o está superada (sugiere `--por` la tarea que la superó); la decisión no existe. Faltan `--por` o `--decision` → código 2. `--help` imprime el uso y sale con 0 |
 | `estado [T-n]` | — | Lista las tareas o la ficha de una | — |
 
-Cada transición agrega un evento `tdd.<estado>` en `tdd.jsonl` y regenera **`.harness/cache/hooks.json`**, que es el contrato con el plugin:
+Cada transición agrega un evento `tdd.<estado>` en `tdd.jsonl` (`tdd.superada` para `superar`) y regenera **`.harness/cache/hooks.json`**, que es el contrato con el plugin:
 ```json
 { "generado": "<RFC3339>",
   "tareas_activas": [{ "id": "T-1", "estado": "rojo", "tests_bloqueados": ["tests/x_test.go"] }],
-  "tests_bloqueados": ["tests/x_test.go"] }
+  "tests_bloqueados": ["tests/x_test.go"],
+  "tareas_superadas": [{ "id": "T-7", "por": "T-11", "decision": "D-0042" }] }
 ```
+
+**Tarea superada** (caso típico: otra tarea regeneró un golden que T-n había bloqueado, con una decisión registrada). Es un estado terminal:
+- deja de ser activa: no aparece en `tareas_activas` y sus tests salen de `tests_bloqueados` (si T-m los bloqueó, siguen protegidos por T-m);
+- no bloquea a sus dependientes en el tablero (cuenta como posterior al VERDE);
+- `hz salida --rol implementador|verificador --tarea T-n` sale con 0 **sin volver a comprobar hashes ni la meta-eval** e informa `superada por T-m (D-NNNN)`;
+- `hz tdd estado`, `hz tablero` y `hz estado` la muestran como `SUPERADA` con la tarea y la decisión (`hz estado` no la cuenta como abierta); `hooks.json` la lista en `tareas_superadas` y el resumen del puntero la menciona.
 
 ---
 
@@ -97,7 +105,7 @@ Cada transición agrega un evento `tdd.<estado>` en `tdd.jsonl` y regenera **`.h
 
 ### Tablero (DAG en SQLite, D-0028)
 - `hz tdd contrato T-n … [--celula c] [--bloqueada-por T-1,T-2]`: la tarea nace con su célula y sus dependencias.
-- `hz tablero [--listo] [--celula c]`: lista las tareas con estado, célula, dueño y bloqueos. Con `--listo` muestra solo el **frente listo**: tareas en CONTRATO cuyas dependencias ya están en VERDE o en un estado posterior.
+- `hz tablero [--listo] [--celula c]`: lista las tareas con estado, célula, dueño y bloqueos. Con `--listo` muestra solo el **frente listo**: tareas en CONTRATO cuyas dependencias ya están en VERDE o en un estado posterior (`verde`, `refactor`, `verificada`, `cerrada`, `superada`). Una tarea superada se muestra `SUPERADA · superada por T-m (D-NNNN)`.
 
 ### Arriendos de archivos (D-0017)
 - `hz arriendo tomar <ruta>… --agente <id> --tarea T-n [--ttl 30m]`: toma rutas en exclusiva.
@@ -131,8 +139,8 @@ Cada transición agrega un evento `tdd.<estado>` en `tdd.jsonl` y regenera **`.h
 |---|---|
 | contratista | El contrato existe y la tarea está registrada |
 | tester | Tarea en ROJO o posterior, con tests bloqueados |
-| implementador | Tarea en VERDE o REFACTOR **y** tests bloqueados intactos (hash) |
-| verificador | Tarea en VERDE o posterior, con evidencia ejecutada, `check` en verde **y meta-eval de sus tests** (D-0046): al menos una medición `hz mutar --tarea T-n`; cada archivo medido con detección ≥ `verificacion.mutacion_min` (0,9 por defecto, 0 la desactiva); y cada archivo de código arrendado por la tarea (que no sea test) medido |
+| implementador | Tarea en VERDE o REFACTOR **y** tests bloqueados intactos (hash). Tarea `superada`: sale con 0 e informa por quién y con qué decisión |
+| verificador | Tarea en VERDE o posterior, con evidencia ejecutada, `check` en verde **y meta-eval de sus tests** (D-0046): al menos una medición `hz mutar --tarea T-n`; cada archivo medido con detección ≥ `verificacion.mutacion_min` (0,9 por defecto, 0 la desactiva); y cada archivo de código arrendado por la tarea (que no sea test) medido. Tarea `superada`: sale con 0 sin estas comprobaciones y la salida dice `superada por T-m (D-NNNN)` |
 | evaluador / otros | Existe una tarjeta del rol para la tarea |
 
 ### Capacidad (D-0023, D-0030)
@@ -183,7 +191,17 @@ Cada transición agrega un evento `tdd.<estado>` en `tdd.jsonl` y regenera **`.h
 `hz mutar --archivo <src> [--tarea T-n] [--cmd "…"] [--max 20] [--timeout 120s]`
 - Aplica mutaciones textuales, **una a la vez**, fuera de strings y comentarios: ` + `↔` - `, ` == `↔` != `, ` < `↔` >= `, ` > `↔` <= `, ` && `↔` || ` y `true`↔`false`.
 - Para cada mutante corre el comando (`comandos.test` por defecto): un mutante es **detectado** si el comando falla.
-- **Siempre restaura el original** (respaldo en `.harness/cache/mutar.bak` y verificación por hash).
+- **Siempre restaura el original**, con un respaldo **por archivo** y verificación por hash:
+  - El respaldo vive en `.harness/cache/mutar/<h>.bak`, donde `<h>` son los primeros 16 hex del sha256 de la ruta relativa normalizada (con `/`, limpia y, en Windows, en minúsculas).
+  - A su lado vive el candado `<h>.lock`: se crea en exclusiva (`O_EXCL`) **antes** del respaldo, guarda `{ruta, pid, host, inicio, sha256}` del original y su mtime se renueva cada 10 s (latido) mientras dura la medición.
+  - Al terminar, restaura, verifica el hash y borra primero el respaldo y después el candado. Si la verificación falla, conserva ambos y termina con código 4 nombrando el respaldo.
+- **Concurrencia:** dos mediciones sobre **archivos distintos** corren a la vez sin pisarse. Una segunda medición sobre el **mismo archivo** mientras la primera vive → código 1, sin tocar el archivo: «ya hay una medición de mutación en curso sobre `<ruta>` (pid N, desde HH:MM:SS)…».
+- **Huérfanos** (corrida interrumpida): al empezar, `hz mutar` revisa **todos** los candados. Un candado es huérfano si su proceso ya no existe en este host o si su latido tiene más de 1 min. Por cada huérfano:
+  - si el archivo es igual al original, borra respaldo y candado;
+  - si el archivo es **un mutante** del original (difiere en un único sitio mutado), restaura el original, lo verifica, borra respaldo y candado y avisa: `aviso: restaurado <ruta> …`;
+  - si el archivo cambió de otra forma, **no lo toca**: avisa con la ruta del respaldo y conserva respaldo y candado. Medir ese archivo queda rechazado (código 1) hasta que el humano lo resuelva borrando `<h>.lock` y `<h>.bak`.
+  - Un respaldo antiguo `.harness/cache/mutar.bak` (versiones previas) solo se avisa, porque no dice de qué archivo es.
+- Los avisos salen por stderr, aunque la medición falle después; con `--json` van además en `avisos`.
 - Si hay más sitios que `--max`, toma una **muestra determinista repartida en todo el archivo** (paso uniforme), no solo los primeros.
 - Un archivo sin sitios mutables registra detección 1: no hay fallas que la suite deba detectar.
 - Informa la tasa de detección y los mutantes sobrevivientes (`línea:col operador`), que son candidatos a `test_debil`.

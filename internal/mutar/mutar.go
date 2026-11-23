@@ -3,7 +3,6 @@
 package mutar
 
 import (
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -27,10 +26,11 @@ type Sitio struct {
 
 // Resultado de una corrida de mutation testing.
 type Resultado struct {
-	Total          int     `json:"total"`
-	Detectados     int     `json:"detectados"`
-	Sobrevivientes []Sitio `json:"sobrevivientes"`
-	Tasa           float64 `json:"tasa"`
+	Total          int      `json:"total"`
+	Detectados     int      `json:"detectados"`
+	Sobrevivientes []Sitio  `json:"sobrevivientes"`
+	Tasa           float64  `json:"tasa"`
+	Avisos         []string `json:"avisos,omitempty"` // huérfanos reparados o pendientes (respaldo.go)
 }
 
 // Operadores binarios rodeados de espacios: evita genéricos, flechas y operadores unarios.
@@ -125,30 +125,27 @@ func Aplicar(src string, s Sitio) string {
 }
 
 // Ejecutar aplica cada mutante (uno a la vez), corre la suite y restaura siempre el original.
-func Ejecutar(raiz, archivo, cmd string, max int, limite time.Duration) (Resultado, error) {
-	var r Resultado
+// Antes repara los huérfanos de corridas interrumpidas (r.Avisos llega aunque haya error) y toma el candado
+// del archivo: dos mediciones sobre archivos distintos no se pisan; sobre el mismo, la segunda se rechaza.
+func Ejecutar(raiz, archivo, cmd string, max int, limite time.Duration) (r Resultado, err error) {
 	if strings.TrimSpace(cmd) == "" {
 		return r, fmt.Errorf("%w: sin comando de test (usa --cmd o comandos.test)", tdd.ErrVerificacion)
 	}
-	ruta := filepath.Join(raiz, archivo)
-	original, err := os.ReadFile(ruta)
+	rel := normalizar(raiz, archivo)
+	r.Avisos = recuperarHuerfanos(raiz)
+	resp, err := tomar(raiz, rel)
 	if err != nil {
 		return r, err
 	}
-	respaldo := filepath.Join(raiz, ".harness", "cache", "mutar.bak")
-	if err := os.MkdirAll(filepath.Dir(respaldo), 0o755); err != nil {
-		return r, err
-	}
-	if err := os.WriteFile(respaldo, original, 0o644); err != nil {
-		return r, err
-	}
-	hash := sha256.Sum256(original)
 	defer func() {
-		_ = os.WriteFile(ruta, original, 0o644)
-		if actual, err := os.ReadFile(ruta); err == nil && sha256.Sum256(actual) == hash {
-			_ = os.Remove(respaldo)
+		if errL := resp.liberar(); errL != nil { // no restaurar es más grave que cualquier otro fallo (código 4)
+			if err != nil {
+				errL = fmt.Errorf("%w (además: %v)", errL, err)
+			}
+			err = errL
 		}
 	}()
+	ruta, original := resp.ruta, resp.original
 	base, err := tdd.EjecutarConLimite(raiz, cmd, limite)
 	if err != nil {
 		return r, err
@@ -156,7 +153,7 @@ func Ejecutar(raiz, archivo, cmd string, max int, limite time.Duration) (Resulta
 	if base.Codigo != 0 {
 		return r, fmt.Errorf("%w: la suite falla sin mutantes; mutation testing necesita una línea base en verde", tdd.ErrVerificacion)
 	}
-	sitios := Sitios(string(original), strings.ToLower(filepath.Ext(archivo)))
+	sitios := Sitios(string(original), strings.ToLower(path.Ext(rel)))
 	sitios = Muestra(sitios, max)
 	for _, s := range sitios {
 		if err := os.WriteFile(ruta, []byte(Aplicar(string(original), s)), 0o644); err != nil {

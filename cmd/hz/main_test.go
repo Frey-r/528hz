@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -12,6 +14,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"hz528/internal/mutar"
 )
 
 func hz(t *testing.T, args ...string) (int, string, string) {
@@ -412,5 +416,116 @@ func TestDashboardSirveYSeApagaOrdenadamente(t *testing.T) {
 	}
 	if s := <-estado; s != http.StatusOK {
 		t.Fatalf("mientras corría, /api/panel respondió %d", s)
+	}
+}
+
+func TestSuperarDesdeElCLI(t *testing.T) {
+	raiz := t.TempDir()
+	if code, _, e := hz(t, "--raiz", raiz, "activar", "--nivel", "N2"); code != 0 {
+		t.Fatalf("activar: %s", e)
+	}
+	for rel, txt := range map[string]string{"contratos/x.md": "contrato\n", "golden/sprites.json": "{\"v\":1}\n"} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(raiz, rel)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(raiz, rel), []byte(txt), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ciclo := func(id string) [][]string {
+		return [][]string{
+			{"tdd", "contrato", id, "--titulo", "golden " + id, "--contrato", "contratos/x.md"},
+			{"tdd", "rojo", id, "--tests", "golden/sprites.json", "--cmd", "echo 'AssertionError'; exit 1"},
+			{"tdd", "verde", id, "--cmd", "exit 0"},
+		}
+	}
+	for _, args := range ciclo("T-7") {
+		if code, _, e := hz(t, append([]string{"--raiz", raiz}, args...)...); code != 0 {
+			t.Fatalf("hz %v: %s", args, e)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(raiz, "golden", "sprites.json"), []byte("{\"v\":2}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range append(ciclo("T-11"), []string{"decision", "nueva", "--que", "regenerar el golden de sprites", "--por-que", "aprobación visual del humano", "--decidio", "humano"}) {
+		if code, _, e := hz(t, append([]string{"--raiz", raiz}, args...)...); code != 0 {
+			t.Fatalf("hz %v: %s", args, e)
+		}
+	}
+	if code, _, e := hz(t, "--raiz", raiz, "salida", "--rol", "verificador", "--tarea", "T-7"); code != 1 || !strings.Contains(e, "sprites.json") {
+		t.Fatalf("antes de superarla, T-7 falla por el golden regenerado: %d %q", code, e)
+	}
+	pasos := []struct {
+		args       []string
+		codigo     int
+		out, errSt string
+	}{
+		{[]string{"tdd", "superar", "--help"}, 0, "--por", ""},
+		{[]string{"tdd", "superar", "T-7", "--por", "T-11"}, 2, "", "--decision"},
+		{[]string{"tdd", "superar", "T-7", "--por", "T-11", "--decision", "D-0404"}, 1, "", "D-0404"},
+		{[]string{"tdd", "superar", "T-7", "--por", "T-11", "--decision", "D-0001", "--motivo", "golden regenerado tras aprobación"}, 0, "T-7 → SUPERADA por T-11 (D-0001)", ""},
+		{[]string{"tdd", "superar", "T-7", "--por", "T-11", "--decision", "D-0001"}, 1, "", "ya fue superada"},
+		{[]string{"tdd", "estado"}, 0, "T-7 · SUPERADA", ""},
+		{[]string{"tdd", "estado", "T-7"}, 0, "superada por T-11 (D-0001)", ""},
+		{[]string{"tdd", "estado", "T-7"}, 0, "golden regenerado tras aprobación", ""},
+		{[]string{"tablero"}, 0, "superada por T-11 (D-0001)", ""},
+		{[]string{"salida", "--rol", "verificador", "--tarea", "T-7"}, 0, "superada por T-11 (D-0001)", ""},
+	}
+	for _, p := range pasos {
+		code, out, e := hz(t, append([]string{"--raiz", raiz}, p.args...)...)
+		if code != p.codigo || !strings.Contains(out, p.out) || !strings.Contains(e, p.errSt) {
+			t.Fatalf("hz %v: código %d (se esperaba %d), salida %q, error %q", p.args, code, p.codigo, out, e)
+		}
+	}
+	if _, out, _ := hz(t, "--raiz", raiz, "estado"); strings.Contains(out, "T-7 ·") || !strings.Contains(out, "T-11 ·") {
+		t.Fatalf("una tarea superada no cuenta como abierta en hz estado:\n%s", out)
+	}
+	b, err := os.ReadFile(filepath.Join(raiz, ".harness", "cache", "hooks.json"))
+	if err != nil || !strings.Contains(string(b), `"tareas_superadas"`) || !strings.Contains(string(b), `"por": "T-11"`) {
+		t.Fatalf("exportar lista la tarea superada en hooks.json: %v\n%s", err, b)
+	}
+}
+
+// candadoDeMutar fabrica el candado y el respaldo de una medición de hz mutar (formato de contratos/cli.md).
+func candadoDeMutar(t *testing.T, raiz, rel, original string, pid int) {
+	t.Helper()
+	host, _ := os.Hostname()
+	bak := mutar.RutaRespaldo(raiz, rel)
+	h := sha256.Sum256([]byte(original))
+	b, _ := json.Marshal(map[string]any{"ruta": rel, "pid": pid, "host": host, "inicio": time.Now().Format(time.RFC3339), "sha256": hex.EncodeToString(h[:])})
+	if err := os.MkdirAll(filepath.Dir(bak), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(strings.TrimSuffix(bak, ".bak")+".lock", b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bak, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMutarAvisaHuerfanosYRechazaElMismoArchivo(t *testing.T) {
+	raiz := t.TempDir()
+	if code, _, e := hz(t, "--raiz", raiz, "activar"); code != 0 {
+		t.Fatalf("activar: %s", e)
+	}
+	const calc, otro = "func Sumar(a, b int) int { return a + b }\n", "func Listo() bool { return true }\n"
+	for rel, txt := range map[string]string{"calc.go": "func Sumar(a, b int) int { return a - b }\n", "otro.go": otro} {
+		if err := os.WriteFile(filepath.Join(raiz, rel), []byte(txt), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	candadoDeMutar(t, raiz, "calc.go", calc, 2147483600)
+	cmd := `grep -q "return true" otro.go`
+	code, out, e := hz(t, "--raiz", raiz, "mutar", "--archivo", "otro.go", "--cmd", cmd)
+	if code != 0 || !strings.Contains(out, "detección 100%") || !strings.Contains(e, "aviso: restaurado calc.go") {
+		t.Fatalf("hz mutar restaura el mutante huérfano y lo avisa por stderr: %d %q %q", code, out, e)
+	}
+	if b, _ := os.ReadFile(filepath.Join(raiz, "calc.go")); string(b) != calc {
+		t.Fatalf("calc.go vuelve a su original: %q", b)
+	}
+	candadoDeMutar(t, raiz, "otro.go", otro, os.Getpid())
+	if code, _, e := hz(t, "--raiz", raiz, "mutar", "--archivo", "otro.go", "--cmd", cmd); code != 1 || !strings.Contains(e, "en curso") || !strings.Contains(e, "otro.go") {
+		t.Fatalf("una segunda medición sobre el mismo archivo se rechaza con código 1 y un mensaje claro: %d %q", code, e)
 	}
 }

@@ -194,7 +194,7 @@ CREATE TABLE IF NOT EXISTS tareas_tdd (
   id              TEXT PRIMARY KEY,              -- T-…
   mision_id       TEXT REFERENCES misiones(id),
   titulo          TEXT NOT NULL,
-  estado          TEXT NOT NULL DEFAULT 'contrato' CHECK (estado IN ('contrato','rojo','verde','refactor','verificada','cerrada')),
+  estado          TEXT NOT NULL DEFAULT 'contrato' CHECK (estado IN ('contrato','rojo','verde','refactor','verificada','cerrada','superada')),
   contrato_ruta   TEXT,
   contrato_ok_en  TEXT,
   tests_bloqueados TEXT NOT NULL DEFAULT '[]',   -- JSON [{ruta, sha256}]
@@ -205,7 +205,8 @@ CREATE TABLE IF NOT EXISTS tareas_tdd (
   -- Tablero (DAG). TaskList no existe en este build: el tablero vive aquí (spike S9)
   celula          TEXT,
   owner_agente_id TEXT,
-  bloqueada_por   TEXT NOT NULL DEFAULT '[]'     -- JSON [T-…]
+  bloqueada_por   TEXT NOT NULL DEFAULT '[]',    -- JSON [T-…]
+  superacion      TEXT                           -- JSON {por, decision, decidio, motivo, quien, en, estado_previo} (hz tdd superar)
 );
 
 CREATE TABLE IF NOT EXISTS verificadores (
