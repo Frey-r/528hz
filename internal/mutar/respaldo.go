@@ -192,9 +192,23 @@ func huerfano(c infoCandado, latido time.Time, host string) bool {
 
 // ocupado explica por qué no se pudo tomar el candado de rel.
 func ocupado(raiz, rel string, r *respaldo) error {
+	reclamo := rutaReclamo(r.lock)
+	if fi, err := os.Stat(reclamo); err == nil {
+		if time.Since(fi.ModTime()) <= latidoVencido {
+			return fmt.Errorf("%w: otra corrida de hz mutar está reparando un respaldo huérfano de %s; reintenta en unos segundos", ErrEnCurso, rel)
+		}
+		return fmt.Errorf("%w: quedó %s de una reparación interrumpida de hz mutar sobre %s; compáralo con %s y borra ese archivo junto a su .lock y su .bak antes de medirlo",
+			tdd.ErrVerificacion, relativa(raiz, reclamo), rel, relativa(raiz, r.bak))
+	}
 	c, latido, err := leerCandado(r.lock)
 	host, _ := os.Hostname()
-	if err == nil && huerfano(c, latido, host) {
+	switch {
+	case err != nil && (errors.Is(err, fs.ErrNotExist) || time.Since(latido) <= latidoVencido):
+		return fmt.Errorf("%w: otra medición de %s está empezando o terminando; reintenta en unos segundos", ErrEnCurso, rel)
+	case err != nil:
+		return fmt.Errorf("%w: el candado %s de %s es ilegible (%v) y su latido venció; revísalo y bórralo junto a su .bak antes de medirlo",
+			tdd.ErrVerificacion, relativa(raiz, r.lock), rel, err)
+	case huerfano(c, latido, host):
 		return fmt.Errorf("%w: %s tiene un respaldo huérfano de una corrida interrumpida de hz mutar que no se restauró porque el archivo cambió; compáralo con %s y borra ese archivo y su .lock antes de medirlo",
 			tdd.ErrVerificacion, rel, relativa(raiz, r.bak))
 	}
@@ -241,7 +255,35 @@ func recuperar(raiz, lock, host string) string {
 	if !huerfano(c, latido, host) {
 		return ""
 	}
+	return reparar(raiz, lock, c)
+}
+
+// rutaReclamo es el archivo que marca que un proceso está reparando el huérfano de `lock` (D-0055).
+func rutaReclamo(lock string) string { return strings.TrimSuffix(lock, ".lock") + ".recuperando" }
+
+// reparar restaura o limpia el huérfano `visto` del candado `lock`, una sola vez aunque varios procesos lo
+// intenten a la vez (D-0055): lo reclama creando <h>.recuperando en exclusiva y relee el candado. Si ya no es
+// el que se vio huérfano (otro lo reparó y una medición nueva tomó el archivo), no toca nada.
+func reparar(raiz, lock string, visto infoCandado) string {
 	bak := strings.TrimSuffix(lock, ".lock") + ".bak"
+	reclamo := rutaReclamo(lock)
+	f, err := os.OpenFile(reclamo, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if errors.Is(err, fs.ErrExist) {
+		if fi, e := os.Stat(reclamo); e == nil && time.Since(fi.ModTime()) > latidoVencido {
+			return fmt.Sprintf("quedó %s de una reparación interrumpida de hz mutar sobre %s: compara %s con %s y borra ese archivo junto a su .lock y su .bak para volver a medirlo",
+				relativa(raiz, reclamo), visto.Ruta, visto.Ruta, relativa(raiz, bak))
+		}
+		return "" // otro proceso lo está reparando
+	}
+	if err != nil {
+		return fmt.Sprintf("no se pudo reclamar la reparación de %s (%v): se reintenta en la próxima hz mutar", visto.Ruta, err)
+	}
+	_ = f.Close()
+	defer func() { _ = os.Remove(reclamo) }() // se suelta después de limpiar: el candado ya no está
+	if actual, _, err := leerCandado(lock); err != nil || actual != visto {
+		return ""
+	}
+	c := visto
 	ruta := filepath.Join(raiz, filepath.FromSlash(c.Ruta))
 	actual, errA := os.ReadFile(ruta)
 	original, errB := os.ReadFile(bak)

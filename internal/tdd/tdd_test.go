@@ -316,3 +316,103 @@ func TestSuperarRechazaConRemediacion(t *testing.T) {
 		t.Fatalf("superar con una tarea ya superada sugiere --por la que la superó: %v", err)
 	}
 }
+
+// sinSuperar comprueba que un rechazo de superar no cambió la tarea.
+func sinSuperar(t *testing.T, q Maquina, id string) {
+	t.Helper()
+	if ta, _ := q.M.Tarea(id); ta.Estado == "superada" || ta.Superacion != nil {
+		t.Fatalf("un rechazo no supera la tarea %s: %+v", id, ta)
+	}
+}
+
+func decisionDe(t *testing.T, q Maquina, decidio string) string {
+	t.Helper()
+	d, err := q.M.NuevaDecision(motor.Decision{Que: "superar la tarea vieja", PorQue: "la reemplaza la nueva", Decidio: decidio})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
+
+// Superar exige evidencia (D-0054): T-m bloquea, con su contenido actual, cada test de T-n que cambió.
+func TestSuperarExigeQueLaTareaNuevaBloqueeLoQueCambio(t *testing.T) {
+	q, raiz, d := superacionArmada(t)
+	otro := "tests/otro_test.txt"
+	if err := os.WriteFile(filepath.Join(raiz, otro), []byte("assert otro\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Contrato("T-3", "otra cosa", "contratos/sumar.md", true, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Rojo("T-3", []string{otro}, cmdRojoBueno); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Verde("T-3", cmdVerde); err != nil {
+		t.Fatal(err)
+	}
+	err := q.Superar("T-1", "T-3", d, "", "")
+	if !errors.Is(err, ErrVerificacion) || !strings.Contains(err.Error(), testsDeLaTarea) || !strings.Contains(err.Error(), "T-3") {
+		t.Fatalf("una T-m que no bloquea el test que cambió no supera a T-1; el error nombra el test y T-m: %v", err)
+	}
+	sinSuperar(t, q, "T-1")
+	if err := os.WriteFile(filepath.Join(raiz, testsDeLaTarea), []byte("assert sumar(1,2)==3  # editado después de T-2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err = q.Superar("T-1", "T-2", d, "", "")
+	if !errors.Is(err, ErrVerificacion) || !strings.Contains(err.Error(), testsDeLaTarea) || !strings.Contains(err.Error(), "T-2") {
+		t.Fatalf("si el test cambió después de que T-m lo bloqueara, T-m no lo respalda: %v", err)
+	}
+	sinSuperar(t, q, "T-1")
+	if err := os.Remove(filepath.Join(raiz, testsDeLaTarea)); err != nil {
+		t.Fatal(err)
+	}
+	err = q.Superar("T-1", "T-2", d, "", "")
+	if !errors.Is(err, ErrVerificacion) || !strings.Contains(err.Error(), testsDeLaTarea) || !strings.Contains(err.Error(), "no existe") {
+		t.Fatalf("un test borrado no lo puede respaldar T-m: %v", err)
+	}
+	sinSuperar(t, q, "T-1")
+}
+
+func TestSuperarExigeAlgunTestCambiado(t *testing.T) {
+	q, _ := proyectoTDD(t)
+	tareaEnVerde(t, q, "T-1")
+	tareaEnVerde(t, q, "T-2") // bloquea el mismo test, que no cambió
+	err := q.Superar("T-1", "T-2", decisionDe(t, q, "humano"), "", "")
+	if !errors.Is(err, ErrVerificacion) || !strings.Contains(err.Error(), "no hay nada que superar") || !strings.Contains(err.Error(), "hz salida") {
+		t.Fatalf("sin tests cambiados no hay nada que superar: la tarea se entrega con hz salida: %v", err)
+	}
+	sinSuperar(t, q, "T-1")
+}
+
+func TestSuperarComparaRutasLimpias(t *testing.T) {
+	q, raiz := proyectoTDD(t)
+	tareaEnVerde(t, q, "T-1")
+	if err := os.WriteFile(filepath.Join(raiz, testsDeLaTarea), []byte("assert sumar(1,2)==3  # golden regenerado\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Contrato("T-2", "regenera", "contratos/sumar.md", true, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Rojo("T-2", []string{"./" + testsDeLaTarea}, cmdRojoBueno); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Verde("T-2", cmdVerde); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Superar("T-1", "T-2", decisionDe(t, q, "humano"), "", ""); err != nil {
+		t.Fatalf("la misma ruta escrita de otra forma cuenta como bloqueada por T-m: %v", err)
+	}
+}
+
+func TestSuperarExigeDecisionDelHumanoOAprobada(t *testing.T) {
+	q, _, _ := superacionArmada(t)
+	d := decisionDe(t, q, "agente")
+	err := q.Superar("T-1", "T-2", d, "", "")
+	if !errors.Is(err, ErrVerificacion) || !strings.Contains(err.Error(), d) || !strings.Contains(err.Error(), "humano") || !strings.Contains(err.Error(), "agente_aprobado") {
+		t.Fatalf("una decisión del propio agente no basta para superar: %v", err)
+	}
+	sinSuperar(t, q, "T-1")
+	if err := q.Superar("T-1", "T-2", decisionDe(t, q, "agente_aprobado"), "", ""); err != nil {
+		t.Fatalf("una decisión agente_aprobado basta: %v", err)
+	}
+}
